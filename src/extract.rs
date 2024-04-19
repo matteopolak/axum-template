@@ -33,7 +33,10 @@ where
 	}
 }
 
-pub struct Session(pub model::User);
+pub struct Session {
+	pub id: Uuid,
+	pub user: model::User,
+}
 
 #[axum::async_trait]
 impl FromRequest<AppState> for Session {
@@ -72,6 +75,9 @@ impl FromRequest<AppState> for Session {
 			return Err(AuthError::InvalidSessionCookie.into());
 		};
 
-		Ok(Self(user))
+		Ok(Self {
+			user,
+			id: sessionid,
+		})
 	}
 }

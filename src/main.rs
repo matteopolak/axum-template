@@ -1,3 +1,4 @@
+mod cookie;
 mod error;
 mod extract;
 mod model;
@@ -16,6 +17,7 @@ pub type AppState = Arc<State>;
 pub struct State {
 	pub database: Database,
 	pub hasher: Argon2<'static>,
+	pub cookie: Cookie,
 }
 
 #[tokio::main]
@@ -23,9 +25,11 @@ async fn main() {
 	dotenvy::dotenv().ok();
 
 	let state = Arc::new(State {
-		database: Database::connect("postgres://localhost/database")
-			.await
-			.unwrap(),
+		database: Database::connect(
+			&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+		)
+		.await
+		.unwrap(),
 		hasher: Argon2::default(),
 	});
 
@@ -38,8 +42,4 @@ async fn main() {
 		.unwrap();
 
 	axum::serve(listener, app).await.unwrap();
-}
-
-async fn index() -> &'static str {
-	"Hello, World!"
 }

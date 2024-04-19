@@ -12,12 +12,16 @@ use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::{error::Error, extract::Json, model, AppState};
+use crate::{
+	cookie,
+	error::Error,
+	extract::{Json, Session},
+	model, AppState, Database,
+};
 
 pub const KEY_LENGTH: usize = 32;
-pub const SESSION_COOKIE: &str = "sessionid";
 
-pub fn routes(state: AppState) -> axum::Router {
+pub fn routes(state: AppState) -> axum::Router<AppState> {
 	axum::Router::new()
 		.route("/login", post(login))
 		.route("/logout", get(logout))
@@ -98,16 +102,52 @@ async fn login(
 	.fetch_one(&state.database)
 	.await?;
 
-	let cookie = cookie::Cookie::new(SESSION_COOKIE, sessionid.to_string());
-	let cookie = cookie::Cookie::build(cookie).http_only(true);
+	let cookie = cookie::session(sessionid);
 
 	Ok([(header::SET_COOKIE, cookie.to_string())])
 }
 
-async fn logout() -> &'static str {
-	"Logout"
+async fn logout(database: Database, session: Session) -> Result<(), Error> {
+	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
+		.execute(&database)
+		.await?;
+
+	Ok(())
 }
 
-async fn register() -> &'static str {
-	"Register"
+async fn register(
+	State(state): State<AppState>,
+	Json(auth): Json<Auth>,
+) -> Result<impl IntoResponse, Error> {
+	let user_id = Uuid::new_v4();
+	let hashed =
+		hash_password(&state.hasher, &auth.password, &user_id).map_err(AuthError::Argon)?;
+
+	let mut tx = state.database.begin().await?;
+
+	sqlx::query_scalar!(
+		r#"
+      INSERT INTO "user" (id, email, password) VALUES ($1, $2, $3) RETURNING id
+    "#,
+		user_id,
+		auth.email,
+		&hashed
+	)
+	.fetch_one(&mut *tx)
+	.await?;
+
+	let session_id = sqlx::query_scalar!(
+		r#"
+      INSERT INTO session (user_id) VALUES ($1) RETURNING id
+    "#,
+		user_id
+	)
+	.fetch_one(&mut *tx)
+	.await?;
+
+	tx.commit().await?;
+
+	let cookie = cookie::session(session_id);
+
+	Ok([(header::SET_COOKIE, cookie.to_string())])
 }
