@@ -1,6 +1,8 @@
 use axum::{
+	body::Body,
 	extract::{FromRequest, Request},
-	http::header,
+	http::{header, Response},
+	response::IntoResponse,
 };
 use serde::de;
 use uuid::Uuid;
@@ -23,6 +25,15 @@ where
 
 		result.validate().map_err(Error::Validation)?;
 		Ok(Self(result))
+	}
+}
+
+impl<T> IntoResponse for Json<T>
+where
+	T: serde::Serialize,
+{
+	fn into_response(self) -> Response<Body> {
+		axum::extract::Json(self.0).into_response()
 	}
 }
 

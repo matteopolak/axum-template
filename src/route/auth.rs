@@ -23,6 +23,7 @@ pub fn routes() -> axum::Router<AppState> {
 		.route("/login", post(login))
 		.route("/logout", get(logout))
 		.route("/register", post(register))
+		.route("/me", get(me))
 }
 
 /// An error that can occur during authentication.
@@ -41,6 +42,10 @@ pub enum AuthError {
 	NoSessionCookie,
 	#[error("invalid session cookie")]
 	InvalidSessionCookie,
+	#[error("username already taken")]
+	UsernameTaken,
+	#[error("email already taken")]
+	EmailTaken,
 }
 
 impl IntoResponse for AuthError {
@@ -50,11 +55,21 @@ impl IntoResponse for AuthError {
 }
 
 #[derive(Deserialize, Validate)]
-pub struct Auth {
+pub struct LoginInput {
 	#[validate(email)]
 	pub email: String,
 	#[validate(length(min = 8, max = 128))]
 	pub password: String,
+}
+
+#[derive(Deserialize, Validate)]
+pub struct RegisterInput {
+	#[validate(email)]
+	pub email: String,
+	#[validate(length(min = 8, max = 128))]
+	pub password: String,
+	#[validate(length(min = 3, max = 16))]
+	pub username: String,
 }
 
 fn hash_password(
@@ -68,9 +83,13 @@ fn hash_password(
 	Ok(hash)
 }
 
+async fn me(session: Session) -> impl IntoResponse {
+	Json(session.user)
+}
+
 async fn login(
 	State(state): State<AppState>,
-	Json(auth): Json<Auth>,
+	Json(auth): Json<LoginInput>,
 ) -> Result<impl IntoResponse, Error> {
 	let user = sqlx::query_as!(
 		model::User,
@@ -117,7 +136,7 @@ async fn logout(
 
 async fn register(
 	State(state): State<AppState>,
-	Json(auth): Json<Auth>,
+	Json(auth): Json<RegisterInput>,
 ) -> Result<impl IntoResponse, Error> {
 	let user_id = Uuid::new_v4();
 	let hashed =
@@ -127,14 +146,23 @@ async fn register(
 
 	sqlx::query_scalar!(
 		r#"
-      INSERT INTO "user" (id, email, password) VALUES ($1, $2, $3) RETURNING id
+      INSERT INTO "user" (id, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id
     "#,
 		user_id,
 		auth.email,
+		auth.username,
 		&hashed
 	)
 	.fetch_one(&mut *tx)
-	.await?;
+	.await
+	.map_err(|e| match e {
+		sqlx::Error::Database(ref d) => match d.constraint() {
+			Some("user_email_key") => AuthError::EmailTaken.into(),
+			Some("user_username_key") => AuthError::UsernameTaken.into(),
+			_ => Error::Database(e),
+		},
+		e => Error::Database(e),
+	})?;
 
 	let session_id = sqlx::query_scalar!(
 		r#"

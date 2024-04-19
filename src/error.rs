@@ -1,3 +1,5 @@
+use std::{borrow::Cow, collections::HashMap};
+
 use axum::{
 	body::Body,
 	extract::rejection,
@@ -26,28 +28,63 @@ pub enum Error {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ErrorResponse {
+pub struct ErrorResponse<'e> {
 	pub success: bool,
-	pub errors: Vec<String>,
+	pub errors: Vec<ErrorMessage<'e>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorMessage<'e> {
+	pub message: Cow<'e, str>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub field: Option<Cow<'e, str>>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub details: Option<&'e HashMap<Cow<'e, str>, serde_json::Value>>,
+}
+
+impl<'e> ErrorMessage<'e> {
+	pub fn new(message: Cow<'e, str>) -> Self {
+		Self {
+			message,
+			field: None,
+			details: None,
+		}
+	}
 }
 
 impl IntoResponse for Error {
 	fn into_response(self) -> Response<Body> {
+		tracing::error!("error: {:?}", self);
+
 		let (status, errors) = match self {
-			Error::Validation(errors) => (
-				StatusCode::BAD_REQUEST,
-				errors
-					.field_errors()
-					.into_iter()
-					.flat_map(move |(field, errors)| {
-						errors
-							.iter()
-							.map(move |error| format!("{}: {}", field, error))
-					})
-					.collect(),
+			Error::Validation(errors) => {
+				return (
+					StatusCode::BAD_REQUEST,
+					Json(ErrorResponse {
+						success: false,
+						errors: errors
+							.field_errors()
+							.into_iter()
+							.flat_map(move |(field, errors)| {
+								errors.iter().map(move |error| ErrorMessage {
+									message: error.code.as_ref().into(),
+									field: Some(field.into()),
+									details: Some(&error.params),
+								})
+							})
+							.collect(),
+					}),
+				)
+					.into_response()
+			}
+			Error::Auth(error) => (
+				StatusCode::UNAUTHORIZED,
+				vec![ErrorMessage::new(error.to_string().into())],
 			),
-			Error::Auth(error) => (StatusCode::UNAUTHORIZED, vec![error.to_string()]),
-			Error::Json(error) => (StatusCode::BAD_REQUEST, vec![error.to_string()]),
+			Error::Json(error) => (
+				StatusCode::BAD_REQUEST,
+				vec![ErrorMessage::new(error.to_string().into())],
+			),
 			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
 		};
 
