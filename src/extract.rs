@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::{
 	extract::{FromRequest, Request},
 	http::header,
@@ -7,12 +5,7 @@ use axum::{
 use serde::de;
 use uuid::Uuid;
 
-use crate::{
-	error::Error,
-	model,
-	route::auth::{AuthError, SESSION_COOKIE},
-	AppState, Database,
-};
+use crate::{error::Error, model, route::auth::AuthError, session::SESSION_COOKIE_NAME, AppState};
 
 /// Extractor that deserializes a JSON body and validates it.
 pub struct Json<T>(pub T);
@@ -33,6 +26,11 @@ where
 	}
 }
 
+/// Extracts the session and related user from the request.
+///
+/// If it does not exist, a [`AuthError::NoSessionCookie`] is returned.
+/// If the session is invalid, a [`AuthError::InvalidSessionCookie`] is returned.
+#[derive(Debug)]
 pub struct Session {
 	pub id: Uuid,
 	pub user: model::User,
@@ -49,15 +47,13 @@ impl FromRequest<AppState> for Session {
 			.and_then(|value| value.to_str().ok())
 			.unwrap_or("");
 
-		// parse the cookie
-		// TODO: handle this error instead of ignoring it?
-		let sessionid = cookie::Cookie::split_parse(cookie)
+		let session_id = cookie::Cookie::split_parse(cookie)
 			.filter_map(|cookie| cookie.ok())
-			.find(|cookie| cookie.name() == SESSION_COOKIE)
+			.find(|cookie| cookie.name() == SESSION_COOKIE_NAME)
 			.ok_or(AuthError::NoSessionCookie)?;
 
-		let sessionid =
-			Uuid::parse_str(sessionid.value()).map_err(|_| AuthError::InvalidSessionCookie)?;
+		let session_id =
+			Uuid::parse_str(session_id.value()).map_err(|_| AuthError::InvalidSessionCookie)?;
 
 		let user = sqlx::query_as!(
 			model::User,
@@ -66,7 +62,7 @@ impl FromRequest<AppState> for Session {
                 SELECT user_id FROM session WHERE id = $1
             )
         "#,
-			sessionid
+			session_id
 		)
 		.fetch_optional(&state.database)
 		.await?;
@@ -77,7 +73,7 @@ impl FromRequest<AppState> for Session {
 
 		Ok(Self {
 			user,
-			id: sessionid,
+			id: session_id,
 		})
 	}
 }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use argon2::Argon2;
 use axum::{
 	body::Body,
@@ -13,20 +11,18 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-	cookie,
 	error::Error,
 	extract::{Json, Session},
-	model, AppState, Database,
+	model, session, AppState, Database,
 };
 
 pub const KEY_LENGTH: usize = 32;
 
-pub fn routes(state: AppState) -> axum::Router<AppState> {
+pub fn routes() -> axum::Router<AppState> {
 	axum::Router::new()
 		.route("/login", post(login))
 		.route("/logout", get(logout))
 		.route("/register", post(register))
-		.with_state(state)
 }
 
 /// An error that can occur during authentication.
@@ -95,24 +91,28 @@ async fn login(
 		return Err(AuthError::InvalidUsernameOrPassword.into());
 	}
 
-	let sessionid = sqlx::query_scalar!(
+	let session_id = sqlx::query_scalar!(
 		"INSERT INTO session (user_id) VALUES ($1) RETURNING id",
 		user.id
 	)
 	.fetch_one(&state.database)
 	.await?;
 
-	let cookie = cookie::session(sessionid);
+	let cookie = session::create_cookie(session_id);
 
 	Ok([(header::SET_COOKIE, cookie.to_string())])
 }
 
-async fn logout(database: Database, session: Session) -> Result<(), Error> {
+async fn logout(
+	State(database): State<Database>,
+	session: Session,
+) -> Result<impl IntoResponse, Error> {
 	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
 		.execute(&database)
 		.await?;
 
-	Ok(())
+	// Clear the session cookie
+	Ok([(header::SET_COOKIE, session::clear_cookie().to_string())])
 }
 
 async fn register(
@@ -147,7 +147,7 @@ async fn register(
 
 	tx.commit().await?;
 
-	let cookie = cookie::session(session_id);
+	let cookie = session::create_cookie(session_id);
 
 	Ok([(header::SET_COOKIE, cookie.to_string())])
 }

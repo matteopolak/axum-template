@@ -33,48 +33,31 @@ pub struct ErrorResponse {
 
 impl IntoResponse for Error {
 	fn into_response(self) -> Response<Body> {
-		match self {
+		let (status, errors) = match self {
 			Error::Validation(errors) => (
 				StatusCode::BAD_REQUEST,
-				Json(ErrorResponse {
-					errors: errors
-						.field_errors()
-						.into_iter()
-						.map(move |(field, errors)| {
-							errors
-								.into_iter()
-								.map(move |error| format!("{}: {}", field, error))
-						})
-						.flatten()
-						.collect(),
-					success: false,
-				}),
-			)
-				.into_response(),
-			Error::Auth(error) => (
-				StatusCode::UNAUTHORIZED,
-				Json(ErrorResponse {
-					errors: vec![error.to_string()],
-					success: false,
-				}),
-			)
-				.into_response(),
-			Error::Json(error) => (
-				StatusCode::BAD_REQUEST,
-				Json(ErrorResponse {
-					errors: vec![error.to_string()],
-					success: false,
-				}),
-			)
-				.into_response(),
-			_ => (
-				StatusCode::INTERNAL_SERVER_ERROR,
-				Json(ErrorResponse {
-					errors: Vec::new(),
-					success: false,
-				}),
-			)
-				.into_response(),
-		}
+				errors
+					.field_errors()
+					.into_iter()
+					.flat_map(move |(field, errors)| {
+						errors
+							.iter()
+							.map(move |error| format!("{}: {}", field, error))
+					})
+					.collect(),
+			),
+			Error::Auth(error) => (StatusCode::UNAUTHORIZED, vec![error.to_string()]),
+			Error::Json(error) => (StatusCode::BAD_REQUEST, vec![error.to_string()]),
+			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
+		};
+
+		(
+			status,
+			Json(ErrorResponse {
+				errors,
+				success: false,
+			}),
+		)
+			.into_response()
 	}
 }

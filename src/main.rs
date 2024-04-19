@@ -1,45 +1,51 @@
-mod cookie;
 mod error;
 mod extract;
 mod model;
 mod route;
-
-use std::sync::Arc;
+mod session;
 
 use argon2::Argon2;
-use axum::routing::get;
 use axum::Router;
+use tower_http::trace::TraceLayer;
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
-pub type AppState = Arc<State>;
+pub type AppState = State;
 
-#[derive(axum::extract::FromRef)]
+#[derive(Clone, axum::extract::FromRef)]
 pub struct State {
 	pub database: Database,
 	pub hasher: Argon2<'static>,
-	pub cookie: Cookie,
 }
 
 #[tokio::main]
 async fn main() {
+	tracing_subscriber::fmt::init();
 	dotenvy::dotenv().ok();
 
-	let state = Arc::new(State {
+	let state = State {
 		database: Database::connect(
 			&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
 		)
 		.await
 		.unwrap(),
 		hasher: Argon2::default(),
-	});
+	};
 
 	let app = Router::new()
-		.nest("/auth", route::auth::routes(state.clone()))
+		.nest("/auth", route::auth::routes())
+		.layer(TraceLayer::new_for_http())
 		.with_state(state);
 
-	let listener = tokio::net::TcpListener::bind(("127.0.0.1", 3000))
+	let port = std::env::var("PORT").map_or_else(
+		|_| 3000,
+		|port| port.parse().expect("PORT must be a number"),
+	);
+
+	let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
 		.await
-		.unwrap();
+		.expect("failed to bind to port");
+
+	tracing::info!("listening on port {}", port);
 
 	axum::serve(listener, app).await.unwrap();
 }

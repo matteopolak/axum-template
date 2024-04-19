@@ -10,7 +10,7 @@ pub struct User {
 	pub id: Uuid,
 	#[serde(skip_serializing)]
 	pub email: String,
-	/// sha512 and salted with `id`
+	/// argon2 and salted with `id`
 	#[serde(skip_serializing)]
 	pub password: Vec<u8>,
 	pub username: String,
