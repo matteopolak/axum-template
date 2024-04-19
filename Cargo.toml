@@ -1,0 +1,17 @@
+[package]
+name = "axum-template"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+argon2 = { version = "0.5.3", features = ["std"] }
+axum = { version = "0.7.5", features = ["macros"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+cookie = "0.18.1"
+dotenvy = "0.15.7"
+serde = { version = "1.0.198", features = ["derive"] }
+sqlx = { version = "0.7.4", features = ["postgres", "runtime-tokio", "uuid", "chrono"] }
+thiserror = "1.0.58"
+tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.8.0", features = ["serde"] }
+validator = { version = "0.18.1", features = ["derive"] }
