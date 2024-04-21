@@ -89,6 +89,10 @@ impl IntoResponse for Error {
 				StatusCode::BAD_REQUEST,
 				vec![ErrorMessage::new(error.to_string().into())],
 			),
+			Error::Query(error) => (
+				StatusCode::BAD_REQUEST,
+				vec![ErrorMessage::new(error.to_string().into())],
+			),
 			Error::Post(error) => (
 				StatusCode::NOT_FOUND,
 				vec![ErrorMessage::new(error.to_string().into())],
