@@ -9,7 +9,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::route::auth::AuthError;
+use crate::route::{auth::AuthError, posts::PostError};
 
 /// Error type for the application.
 ///
@@ -21,8 +21,12 @@ pub enum Error {
 	Validation(#[from] validator::ValidationErrors),
 	#[error("json error: {0}")]
 	Json(#[from] rejection::JsonRejection),
+	#[error("query error: {0}")]
+	Query(#[from] rejection::QueryRejection),
 	#[error("auth error: {0}")]
 	Auth(#[from] AuthError),
+	#[error("post error: {0}")]
+	Post(#[from] PostError),
 	#[error("database error: {0}")]
 	Database(#[from] sqlx::Error),
 }
@@ -83,6 +87,10 @@ impl IntoResponse for Error {
 			),
 			Error::Json(error) => (
 				StatusCode::BAD_REQUEST,
+				vec![ErrorMessage::new(error.to_string().into())],
+			),
+			Error::Post(error) => (
+				StatusCode::NOT_FOUND,
 				vec![ErrorMessage::new(error.to_string().into())],
 			),
 			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),

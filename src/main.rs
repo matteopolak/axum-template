@@ -6,7 +6,6 @@ mod session;
 
 use argon2::Argon2;
 use axum::Router;
-use tower_http::trace::TraceLayer;
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
 pub type AppState = State;
@@ -27,13 +26,13 @@ async fn main() {
 			&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
 		)
 		.await
-		.unwrap(),
+		.expect("failed to connect to database"),
 		hasher: Argon2::default(),
 	};
 
 	let app = Router::new()
 		.nest("/auth", route::auth::routes())
-		.layer(TraceLayer::new_for_http())
+		.nest("/posts", route::posts::routes())
 		.with_state(state);
 
 	let port = std::env::var("PORT").map_or_else(

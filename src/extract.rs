@@ -1,13 +1,15 @@
 use axum::{
 	body::Body,
-	extract::{FromRequest, Request},
-	http::{header, Response},
+	extract::{FromRef, FromRequest, FromRequestParts, Request},
+	http::{header, request, Response},
 	response::IntoResponse,
 };
 use serde::de;
 use uuid::Uuid;
 
-use crate::{error::Error, model, route::auth::AuthError, session::SESSION_COOKIE_NAME, AppState};
+use crate::{
+	error::Error, model, route::auth::AuthError, session::SESSION_COOKIE_NAME, AppState, Database,
+};
 
 /// Extractor that deserializes a JSON body and validates it.
 pub struct Json<T>(pub T);
@@ -37,6 +39,30 @@ where
 	}
 }
 
+/// Extractor that deserializes a query string and validates it.
+pub struct Query<T>(pub T);
+
+#[axum::async_trait]
+impl<T, S> FromRequestParts<S> for Query<T>
+where
+	T: de::DeserializeOwned + validator::Validate,
+	S: Send + Sync,
+{
+	type Rejection = Error;
+
+	async fn from_request_parts(
+		parts: &mut request::Parts,
+		state: &S,
+	) -> Result<Self, Self::Rejection> {
+		let result = axum::extract::Query::<T>::from_request_parts(parts, state)
+			.await?
+			.0;
+
+		result.validate().map_err(Error::Validation)?;
+		Ok(Self(result))
+	}
+}
+
 /// Extracts the session and related user from the request.
 ///
 /// If it does not exist, a [`AuthError::NoSessionCookie`] is returned.
@@ -48,12 +74,19 @@ pub struct Session {
 }
 
 #[axum::async_trait]
-impl FromRequest<AppState> for Session {
+impl<S> FromRequestParts<S> for Session
+where
+	Database: FromRef<S>,
+	S: Sync + Send,
+{
 	type Rejection = Error;
 
-	async fn from_request(req: Request, state: &AppState) -> Result<Self, Self::Rejection> {
-		let cookie = req
-			.headers()
+	async fn from_request_parts(
+		parts: &mut request::Parts,
+		state: &S,
+	) -> Result<Self, Self::Rejection> {
+		let cookie = parts
+			.headers
 			.get(header::COOKIE)
 			.and_then(|value| value.to_str().ok())
 			.unwrap_or("");
@@ -66,6 +99,7 @@ impl FromRequest<AppState> for Session {
 		let session_id =
 			Uuid::parse_str(session_id.value()).map_err(|_| AuthError::InvalidSessionCookie)?;
 
+		let database = Database::from_ref(state);
 		let user = sqlx::query_as!(
 			model::User,
 			r#"
@@ -75,7 +109,7 @@ impl FromRequest<AppState> for Session {
         "#,
 			session_id
 		)
-		.fetch_optional(&state.database)
+		.fetch_optional(&database)
 		.await?;
 
 		let Some(user) = user else {

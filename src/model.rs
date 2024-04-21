@@ -16,3 +16,15 @@ pub struct User {
 	pub username: String,
 	pub created_at: chrono::DateTime<chrono::Utc>,
 }
+
+/// A model representing a single post.
+///
+/// Use this when fetching from the database and returning to the client.
+#[derive(Debug, Serialize)]
+pub struct Post {
+	pub id: Uuid,
+	pub user_id: Uuid,
+	pub title: String,
+	pub content: String,
+	pub created_at: chrono::DateTime<chrono::Utc>,
+}
