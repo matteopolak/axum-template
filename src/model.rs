@@ -8,7 +8,10 @@ use uuid::Uuid;
 #[derive(Debug, Serialize)]
 pub struct User {
 	pub id: Uuid,
+	/// This isn't used yet, but it can be used to send password resets,
+	/// important announcements, and security events.
 	#[serde(skip_serializing)]
+	#[allow(dead_code)]
 	pub email: String,
 	/// argon2 and salted with `id`
 	#[serde(skip_serializing)]

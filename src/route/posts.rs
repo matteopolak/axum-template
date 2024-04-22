@@ -10,7 +10,6 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-	error::Error,
 	extract::{Json, Query, Session},
 	model, AppState, Database,
 };
@@ -23,14 +22,14 @@ pub fn routes() -> axum::Router<AppState> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum PostError {
+pub enum Error {
 	#[error("unknown post {0}")]
 	UnknownPost(Uuid),
 }
 
-impl IntoResponse for PostError {
+impl IntoResponse for Error {
 	fn into_response(self) -> Response<Body> {
-		Error::from(self).into_response()
+		crate::Error::from(self).into_response()
 	}
 }
 
@@ -60,7 +59,7 @@ async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -83,7 +82,7 @@ async fn get_user_posts(
 async fn get_all_posts(
 	State(database): State<Database>,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -104,7 +103,7 @@ async fn get_all_posts(
 async fn get_one_post(
 	State(database): State<Database>,
 	Path(post_id): Path<Uuid>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	let post = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -114,11 +113,10 @@ async fn get_one_post(
 		post_id,
 	)
 	.fetch_optional(&database)
-	.await
-	.map_err(Error::from)?;
+	.await?;
 
 	match post {
 		Some(post) => Ok(Json(post)),
-		None => Err(PostError::UnknownPost(post_id).into()),
+		None => Err(Error::UnknownPost(post_id).into()),
 	}
 }

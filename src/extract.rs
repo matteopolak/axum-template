@@ -7,9 +7,7 @@ use axum::{
 use serde::de;
 use uuid::Uuid;
 
-use crate::{
-	error::Error, model, route::auth::AuthError, session::SESSION_COOKIE_NAME, AppState, Database,
-};
+use crate::{error::Error, model, route::auth, session::SESSION_COOKIE_NAME, Database};
 
 /// Extractor that deserializes a JSON body and validates it.
 ///
@@ -82,8 +80,8 @@ where
 
 /// Extracts the session and related user from the request.
 ///
-/// If it does not exist, a [`AuthError::NoSessionCookie`] is returned.
-/// If the session is invalid, a [`AuthError::InvalidSessionCookie`] is returned.
+/// If it does not exist, a [`auth::Error::NoSessionCookie`] is returned.
+/// If the session is invalid, a [`auth::Error::InvalidSessionCookie`] is returned.
 ///
 /// ```rust
 /// async fn route(session: Session) {
@@ -115,12 +113,12 @@ where
 			.unwrap_or("");
 
 		let session_id = cookie::Cookie::split_parse(cookie)
-			.filter_map(|cookie| cookie.ok())
+			.filter_map(Result::ok)
 			.find(|cookie| cookie.name() == SESSION_COOKIE_NAME)
-			.ok_or(AuthError::NoSessionCookie)?;
+			.ok_or(auth::Error::NoSessionCookie)?;
 
 		let session_id =
-			Uuid::parse_str(session_id.value()).map_err(|_| AuthError::InvalidSessionCookie)?;
+			Uuid::parse_str(session_id.value()).map_err(|_| auth::Error::InvalidSessionCookie)?;
 
 		let database = Database::from_ref(state);
 		let user = sqlx::query_as!(
@@ -136,7 +134,7 @@ where
 		.await?;
 
 		let Some(user) = user else {
-			return Err(AuthError::InvalidSessionCookie.into());
+			return Err(auth::Error::InvalidSessionCookie.into());
 		};
 
 		Ok(Self {

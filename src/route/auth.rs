@@ -11,7 +11,6 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
-	error::Error,
 	extract::{Json, Session},
 	model, session, AppState, Database,
 };
@@ -31,7 +30,7 @@ pub fn routes() -> axum::Router<AppState> {
 /// Note that the messages are presented to the client, so they should not contain
 /// sensitive information.
 #[derive(Debug, thiserror::Error)]
-pub enum AuthError {
+pub enum Error {
 	#[error("invalid username or password")]
 	InvalidUsernameOrPassword,
 	#[error("password validation error")]
@@ -48,9 +47,9 @@ pub enum AuthError {
 	EmailTaken,
 }
 
-impl IntoResponse for AuthError {
+impl IntoResponse for Error {
 	fn into_response(self) -> Response<Body> {
-		Error::from(self).into_response()
+		crate::Error::from(self).into_response()
 	}
 }
 
@@ -95,7 +94,7 @@ async fn me(session: Session) -> impl IntoResponse {
 async fn login(
 	State(state): State<AppState>,
 	Json(auth): Json<LoginInput>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	let user = sqlx::query_as!(
 		model::User,
 		r#"SELECT * FROM "user" WHERE email = $1"#,
@@ -105,14 +104,13 @@ async fn login(
 	.await;
 
 	let Ok(user) = user else {
-		return Err(AuthError::InvalidUsernameOrPassword.into());
+		return Err(Error::InvalidUsernameOrPassword.into());
 	};
 
-	let hashed =
-		hash_password(&state.hasher, &auth.password, &user.id).map_err(AuthError::Argon)?;
+	let hashed = hash_password(&state.hasher, &auth.password, &user.id).map_err(Error::Argon)?;
 
 	if user.password != hashed {
-		return Err(AuthError::InvalidUsernameOrPassword.into());
+		return Err(Error::InvalidUsernameOrPassword.into());
 	}
 
 	let session_id = sqlx::query_scalar!(
@@ -131,7 +129,7 @@ async fn login(
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
 		.execute(&database)
 		.await?;
@@ -144,10 +142,9 @@ async fn logout(
 async fn register(
 	State(state): State<AppState>,
 	Json(auth): Json<RegisterInput>,
-) -> Result<impl IntoResponse, Error> {
+) -> Result<impl IntoResponse, crate::Error> {
 	let user_id = Uuid::new_v4();
-	let hashed =
-		hash_password(&state.hasher, &auth.password, &user_id).map_err(AuthError::Argon)?;
+	let hashed = hash_password(&state.hasher, &auth.password, &user_id).map_err(Error::Argon)?;
 
 	let mut tx = state.database.begin().await?;
 
@@ -164,11 +161,11 @@ async fn register(
 	.await
 	.map_err(|e| match e {
 		sqlx::Error::Database(ref d) => match d.constraint() {
-			Some("user_email_key") => AuthError::EmailTaken.into(),
-			Some("user_username_key") => AuthError::UsernameTaken.into(),
-			_ => Error::Database(e),
+			Some("user_email_key") => Error::EmailTaken.into(),
+			Some("user_username_key") => Error::UsernameTaken.into(),
+			_ => crate::Error::Database(e),
 		},
-		e => Error::Database(e),
+		e => crate::Error::Database(e),
 	})?;
 
 	let session_id = sqlx::query_scalar!(

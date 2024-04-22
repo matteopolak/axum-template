@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 mod error;
 mod extract;
 mod model;
@@ -6,6 +8,8 @@ mod session;
 
 use argon2::Argon2;
 use axum::Router;
+
+pub use error::Error;
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
 pub type AppState = State;

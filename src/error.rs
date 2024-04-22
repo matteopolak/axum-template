@@ -9,12 +9,13 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::route::{auth::AuthError, posts::PostError};
+use crate::route::{auth, posts};
 
 /// Error type for the application.
 ///
 /// The Display trait is not sent to the client, so it can show
 /// sensitive information.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
 	#[error("validation error: {0}")]
@@ -24,9 +25,9 @@ pub enum Error {
 	#[error("query error: {0}")]
 	Query(#[from] rejection::QueryRejection),
 	#[error("auth error: {0}")]
-	Auth(#[from] AuthError),
+	Auth(#[from] auth::Error),
 	#[error("post error: {0}")]
-	Post(#[from] PostError),
+	Post(#[from] posts::Error),
 	#[error("database error: {0}")]
 	Database(#[from] sqlx::Error),
 }
@@ -36,9 +37,9 @@ pub enum Error {
 /// This is used for all application errors, such as database
 /// connectivity, authentication, and schema validation.
 #[derive(Debug, Serialize)]
-pub struct ErrorResponse<'e> {
+pub struct Shape<'e> {
 	pub success: bool,
-	pub errors: Vec<ErrorMessage<'e>>,
+	pub errors: Vec<Message<'e>>,
 }
 
 /// Single error message shape.
@@ -47,18 +48,18 @@ pub struct ErrorResponse<'e> {
 /// additional context (e.g. when a validation error displays
 /// requirements).
 #[derive(Debug, Serialize)]
-pub struct ErrorMessage<'e> {
-	pub message: Cow<'e, str>,
+pub struct Message<'e> {
+	pub content: Cow<'e, str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub field: Option<Cow<'e, str>>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub details: Option<&'e HashMap<Cow<'e, str>, serde_json::Value>>,
 }
 
-impl<'e> ErrorMessage<'e> {
-	pub fn new(message: Cow<'e, str>) -> Self {
+impl<'e> Message<'e> {
+	pub fn new(content: Cow<'e, str>) -> Self {
 		Self {
-			message,
+			content,
 			field: None,
 			details: None,
 		}
@@ -73,14 +74,14 @@ impl IntoResponse for Error {
 			Error::Validation(errors) => {
 				return (
 					StatusCode::BAD_REQUEST,
-					Json(ErrorResponse {
+					Json(Shape {
 						success: false,
 						errors: errors
 							.field_errors()
 							.into_iter()
 							.flat_map(move |(field, errors)| {
-								errors.iter().map(move |error| ErrorMessage {
-									message: error.code.as_ref().into(),
+								errors.iter().map(move |error| Message {
+									content: error.code.as_ref().into(),
 									field: Some(field.into()),
 									details: Some(&error.params),
 								})
@@ -92,26 +93,26 @@ impl IntoResponse for Error {
 			}
 			Error::Auth(error) => (
 				StatusCode::UNAUTHORIZED,
-				vec![ErrorMessage::new(error.to_string().into())],
+				vec![Message::new(error.to_string().into())],
 			),
 			Error::Json(error) => (
 				StatusCode::BAD_REQUEST,
-				vec![ErrorMessage::new(error.to_string().into())],
+				vec![Message::new(error.to_string().into())],
 			),
 			Error::Query(error) => (
 				StatusCode::BAD_REQUEST,
-				vec![ErrorMessage::new(error.to_string().into())],
+				vec![Message::new(error.to_string().into())],
 			),
 			Error::Post(error) => (
 				StatusCode::NOT_FOUND,
-				vec![ErrorMessage::new(error.to_string().into())],
+				vec![Message::new(error.to_string().into())],
 			),
 			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
 		};
 
 		(
 			status,
-			Json(ErrorResponse {
+			Json(Shape {
 				errors,
 				success: false,
 			}),
