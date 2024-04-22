@@ -2,7 +2,7 @@ use argon2::Argon2;
 use axum::{
 	body::Body,
 	extract::State,
-	http::{header, Response},
+	http::{header, Response, StatusCode},
 	response::IntoResponse,
 	routing::{get, post},
 };
@@ -45,6 +45,18 @@ pub enum Error {
 	UsernameTaken,
 	#[error("email already taken")]
 	EmailTaken,
+}
+
+impl Error {
+	pub fn status(&self) -> StatusCode {
+		match self {
+			Self::InvalidUsernameOrPassword
+			| Self::NoSessionCookie
+			| Self::InvalidSessionCookie => StatusCode::UNAUTHORIZED,
+			Self::Argon(..) | Self::Cookie(..) => StatusCode::INTERNAL_SERVER_ERROR,
+			Self::UsernameTaken | Self::EmailTaken => StatusCode::CONFLICT,
+		}
+	}
 }
 
 impl IntoResponse for Error {

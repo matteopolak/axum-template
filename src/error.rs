@@ -91,10 +91,7 @@ impl IntoResponse for Error {
 				)
 					.into_response()
 			}
-			Error::Auth(error) => (
-				StatusCode::UNAUTHORIZED,
-				vec![Message::new(error.to_string().into())],
-			),
+			Error::Auth(error) => (error.status(), vec![Message::new(error.to_string().into())]),
 			Error::Json(error) => (
 				StatusCode::BAD_REQUEST,
 				vec![Message::new(error.to_string().into())],
@@ -103,10 +100,7 @@ impl IntoResponse for Error {
 				StatusCode::BAD_REQUEST,
 				vec![Message::new(error.to_string().into())],
 			),
-			Error::Post(error) => (
-				StatusCode::NOT_FOUND,
-				vec![Message::new(error.to_string().into())],
-			),
+			Error::Post(error) => (error.status(), vec![Message::new(error.to_string().into())]),
 			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
 		};
 

@@ -1,7 +1,7 @@
 use axum::{
 	body::Body,
 	extract::{Path, State},
-	http::Response,
+	http::{Response, StatusCode},
 	response::IntoResponse,
 	routing::{get, post},
 };
@@ -25,6 +25,14 @@ pub fn routes() -> axum::Router<AppState> {
 pub enum Error {
 	#[error("unknown post {0}")]
 	UnknownPost(Uuid),
+}
+
+impl Error {
+	pub fn status(&self) -> StatusCode {
+		match self {
+			Self::UnknownPost(..) => StatusCode::NOT_FOUND,
+		}
+	}
 }
 
 impl IntoResponse for Error {
