@@ -31,12 +31,21 @@ pub enum Error {
 	Database(#[from] sqlx::Error),
 }
 
+/// Error shape returned to the client.
+///
+/// This is used for all application errors, such as database
+/// connectivity, authentication, and schema validation.
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse<'e> {
 	pub success: bool,
 	pub errors: Vec<ErrorMessage<'e>>,
 }
 
+/// Single error message shape.
+///
+/// Represents a single error message, often accompanied by
+/// additional context (e.g. when a validation error displays
+/// requirements).
 #[derive(Debug, Serialize)]
 pub struct ErrorMessage<'e> {
 	pub message: Cow<'e, str>,

@@ -72,6 +72,9 @@ pub struct RegisterInput {
 	pub username: String,
 }
 
+/// Hashes a password with Argon2, using the user's id as a salt.
+/// Since this is only used for logging in and creating a new password,
+/// the scope of this function can remain in here with no issues.
 fn hash_password(
 	hasher: &Argon2,
 	password: &str,
@@ -83,10 +86,12 @@ fn hash_password(
 	Ok(hash)
 }
 
+/// Returns the authenticated user.
 async fn me(session: Session) -> impl IntoResponse {
 	Json(session.user)
 }
 
+/// Returns a session token, assuming the credentials are valid.
 async fn login(
 	State(state): State<AppState>,
 	Json(auth): Json<LoginInput>,
@@ -122,6 +127,7 @@ async fn login(
 	Ok([(header::SET_COOKIE, cookie.to_string())])
 }
 
+/// Logs out of the authenticated account.
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
@@ -134,6 +140,7 @@ async fn logout(
 	Ok([(header::SET_COOKIE, session::clear_cookie().to_string())])
 }
 
+/// Registers a new account, returning an associated session cookie.
 async fn register(
 	State(state): State<AppState>,
 	Json(auth): Json<RegisterInput>,

@@ -34,6 +34,8 @@ impl IntoResponse for PostError {
 	}
 }
 
+/// These can be removed when [`serde`] supports
+/// literal defaults: <https://github.com/serde-rs/serde/issues/368>
 fn one() -> i64 {
 	1
 }
@@ -52,7 +54,9 @@ pub struct PostPaginateInput {
 	pub size: i64,
 }
 
-pub async fn get_user_posts(
+/// Returns a paginated response of a user's posts,
+/// newest first.
+async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
 	Query(paginate): Query<PostPaginateInput>,
@@ -75,7 +79,8 @@ pub async fn get_user_posts(
 	Ok(Json(posts))
 }
 
-pub async fn get_all_posts(
+/// Returns a paginated response of posts, newest first.
+async fn get_all_posts(
 	State(database): State<Database>,
 	Query(paginate): Query<PostPaginateInput>,
 ) -> Result<impl IntoResponse, Error> {
@@ -95,7 +100,8 @@ pub async fn get_all_posts(
 	Ok(Json(posts))
 }
 
-pub async fn get_one_post(
+/// Returns a single post by its unique id.
+async fn get_one_post(
 	State(database): State<Database>,
 	Path(post_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, Error> {

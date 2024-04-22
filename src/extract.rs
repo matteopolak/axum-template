@@ -12,6 +12,15 @@ use crate::{
 };
 
 /// Extractor that deserializes a JSON body and validates it.
+///
+/// T must implement [`serde::de::DeserializeOwned`] and [`validator::Validate`]
+/// in order to be used in an extractor.
+///
+/// ```rust
+/// async fn route(Json(user): Json<User>) {
+///   // ...
+/// }
+/// ```
 pub struct Json<T>(pub T);
 
 #[axum::async_trait]
@@ -40,6 +49,14 @@ where
 }
 
 /// Extractor that deserializes a query string and validates it.
+///
+/// This is similar to [`Json<T>`], but does not consume the body.
+///
+/// ```rust
+/// async fn route(Query(params): Query<Params>) {
+///   // ...
+/// }
+/// ```
 pub struct Query<T>(pub T);
 
 #[axum::async_trait]
@@ -67,6 +84,12 @@ where
 ///
 /// If it does not exist, a [`AuthError::NoSessionCookie`] is returned.
 /// If the session is invalid, a [`AuthError::InvalidSessionCookie`] is returned.
+///
+/// ```rust
+/// async fn route(session: Session) {
+///   println!("{:?}", session.user);
+/// }
+/// ```
 #[derive(Debug)]
 pub struct Session {
 	pub id: Uuid,
