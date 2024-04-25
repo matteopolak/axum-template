@@ -14,6 +14,13 @@ pub use error::Error;
 pub type Database = sqlx::Pool<sqlx::Postgres>;
 pub type AppState = State;
 
+/// The shared application state.
+///
+/// This should contain all shared dependencies that handlers need to access,
+/// such as a database connection pool, a hash configuratin (if it's expensive to create),
+/// or a cache client.
+///
+/// For dependencies only used by a single handler, you can combine states instead.
 #[derive(Clone, axum::extract::FromRef)]
 pub struct State {
 	pub database: Database,
