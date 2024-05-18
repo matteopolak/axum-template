@@ -1,11 +1,19 @@
+use aide::{
+	axum::{
+		routing::{get_with, post_with},
+		ApiRouter, IntoApiResponse,
+	},
+	transform::TransformOperation,
+	NoApi,
+};
 use argon2::Argon2;
 use axum::{
 	body::Body,
 	extract::State,
 	http::{header, Response, StatusCode},
 	response::IntoResponse,
-	routing::{get, post},
 };
+use schemars::JsonSchema;
 use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
@@ -17,12 +25,12 @@ use crate::{
 
 pub const KEY_LENGTH: usize = 32;
 
-pub fn routes() -> axum::Router<AppState> {
-	axum::Router::new()
-		.route("/login", post(login))
-		.route("/logout", get(logout))
-		.route("/register", post(register))
-		.route("/me", get(me))
+pub fn routes() -> ApiRouter<AppState> {
+	ApiRouter::new()
+		.api_route("/login", post_with(login, login_docs))
+		.api_route("/logout", get_with(logout, logout_docs))
+		.api_route("/register", post_with(register, register_docs))
+		.api_route("/me", get_with(me, me_docs))
 }
 
 /// An error that can occur during authentication.
@@ -65,7 +73,7 @@ impl IntoResponse for Error {
 	}
 }
 
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, JsonSchema)]
 pub struct LoginInput {
 	#[validate(email)]
 	pub email: String,
@@ -73,7 +81,7 @@ pub struct LoginInput {
 	pub password: String,
 }
 
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, JsonSchema)]
 pub struct RegisterInput {
 	#[validate(email)]
 	pub email: String,
@@ -97,16 +105,30 @@ fn hash_password(
 	Ok(hash)
 }
 
+fn me_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Get the authenticated user")
+		.description("Returns the authenticated user.")
+		.response::<200, Json<model::User>>()
+		.tag("auth")
+}
+
 /// Returns the authenticated user.
-async fn me(session: Session) -> impl IntoResponse {
+async fn me(session: Session) -> impl IntoApiResponse {
 	Json(session.user)
+}
+
+fn login_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Log in to an account")
+		.description("Logs in to an account, returning an associated session cookie.")
+		.response::<200, ()>()
+		.tag("auth")
 }
 
 /// Returns a session token, assuming the credentials are valid.
 async fn login(
 	State(state): State<AppState>,
 	Json(auth): Json<LoginInput>,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	let user = sqlx::query_as!(
 		model::User,
 		r#"SELECT * FROM "user" WHERE email = $1"#,
@@ -134,27 +156,44 @@ async fn login(
 
 	let cookie = session::create_cookie(session_id);
 
-	Ok([(header::SET_COOKIE, cookie.to_string())])
+	Ok(NoApi([(header::SET_COOKIE, cookie.to_string())]))
+}
+
+fn logout_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Log out of the authenticated account")
+		.description("Logs out of the authenticated account.")
+		.response::<204, ()>()
+		.tag("auth")
 }
 
 /// Logs out of the authenticated account.
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
 		.execute(&database)
 		.await?;
 
 	// Clear the session cookie
-	Ok([(header::SET_COOKIE, session::clear_cookie().to_string())])
+	Ok((
+		[(header::SET_COOKIE, session::clear_cookie().to_string())],
+		StatusCode::NO_CONTENT,
+	))
+}
+
+fn register_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Register a new account")
+		.description("Registers a new account, returning an associated session cookie.")
+		.response::<200, ()>()
+		.tag("auth")
 }
 
 /// Registers a new account, returning an associated session cookie.
 async fn register(
 	State(state): State<AppState>,
 	Json(auth): Json<RegisterInput>,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	let user_id = Uuid::new_v4();
 	let hashed = hash_password(&state.hasher, &auth.password, &user_id).map_err(Error::Argon)?;
 
@@ -193,5 +232,5 @@ async fn register(
 
 	let cookie = session::create_cookie(session_id);
 
-	Ok([(header::SET_COOKIE, cookie.to_string())])
+	Ok(NoApi([(header::SET_COOKIE, cookie.to_string())]))
 }

@@ -1,10 +1,18 @@
+use aide::{
+	axum::{
+		routing::{get_with, post_with},
+		ApiRouter, IntoApiResponse,
+	},
+	transform::TransformOperation,
+	OperationOutput,
+};
 use axum::{
 	body::Body,
 	extract::{Path, State},
 	http::{Response, StatusCode},
 	response::IntoResponse,
-	routing::{get, post},
 };
+use schemars::JsonSchema;
 use serde::Deserialize;
 use uuid::Uuid;
 use validator::Validate;
@@ -14,11 +22,11 @@ use crate::{
 	model, AppState, Database,
 };
 
-pub fn routes() -> axum::Router<AppState> {
-	axum::Router::new()
-		.route("/", get(get_all_posts))
-		.route("/me", post(get_user_posts))
-		.route("/:id", post(get_one_post))
+pub fn routes() -> ApiRouter<AppState> {
+	ApiRouter::new()
+		.api_route("/", get_with(get_all_posts, get_all_posts_docs))
+		.api_route("/me", post_with(get_user_posts, get_user_posts_docs))
+		.api_route("/:id", post_with(get_one_post, get_one_post_docs))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +49,17 @@ impl IntoResponse for Error {
 	}
 }
 
+impl OperationOutput for Error {
+	type Inner = <crate::Error as OperationOutput>::Inner;
+
+	fn operation_response(
+		ctx: &mut aide::gen::GenContext,
+		operation: &mut aide::openapi::Operation,
+	) -> Option<aide::openapi::Response> {
+		crate::Error::operation_response(ctx, operation)
+	}
+}
+
 /// These can be removed when [`serde`] supports
 /// literal defaults: <https://github.com/serde-rs/serde/issues/368>
 fn one() -> i64 {
@@ -51,7 +70,7 @@ fn ten() -> i64 {
 	10
 }
 
-#[derive(Deserialize, Validate)]
+#[derive(Deserialize, Validate, JsonSchema)]
 pub struct PostPaginateInput {
 	#[validate(range(min = 1, max = 100))]
 	#[serde(default = "one")]
@@ -61,13 +80,20 @@ pub struct PostPaginateInput {
 	pub size: i64,
 }
 
+fn get_user_posts_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Get a user's posts")
+		.description("Returns a paginated response of a user's posts, newest first.")
+		.response::<200, Json<Vec<model::Post>>>()
+		.tag("posts")
+}
+
 /// Returns a paginated response of a user's posts,
 /// newest first.
 async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -86,11 +112,18 @@ async fn get_user_posts(
 	Ok(Json(posts))
 }
 
+fn get_all_posts_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Get all posts")
+		.description("Returns a paginated response of posts, newest first.")
+		.response::<200, Json<Vec<model::Post>>>()
+		.tag("posts")
+}
+
 /// Returns a paginated response of posts, newest first.
 async fn get_all_posts(
 	State(database): State<Database>,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -107,11 +140,18 @@ async fn get_all_posts(
 	Ok(Json(posts))
 }
 
+fn get_one_post_docs(op: TransformOperation) -> TransformOperation {
+	op.summary("Get a single post")
+		.description("Returns a single post by its unique id.")
+		.response::<200, Json<model::Post>>()
+		.tag("posts")
+}
+
 /// Returns a single post by its unique id.
 async fn get_one_post(
 	State(database): State<Database>,
 	Path(post_id): Path<Uuid>,
-) -> Result<impl IntoResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, crate::Error> {
 	let post = sqlx::query_as!(
 		model::Post,
 		r#"

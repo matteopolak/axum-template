@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use aide::OperationOutput;
 use axum::{
 	body::Body,
 	extract::rejection,
@@ -7,6 +8,8 @@ use axum::{
 	response::IntoResponse,
 	Json,
 };
+use axum_jsonschema::JsonSchemaRejection;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::route::{auth, posts};
@@ -20,8 +23,8 @@ use crate::route::{auth, posts};
 pub enum Error {
 	#[error("validation error: {0}")]
 	Validation(#[from] validator::ValidationErrors),
-	#[error("json error: {0}")]
-	Json(#[from] rejection::JsonRejection),
+	#[error("json schema error")]
+	Json(axum_jsonschema::JsonSchemaRejection),
 	#[error("query error: {0}")]
 	Query(#[from] rejection::QueryRejection),
 	#[error("auth error: {0}")]
@@ -32,11 +35,17 @@ pub enum Error {
 	Database(#[from] sqlx::Error),
 }
 
+impl From<axum_jsonschema::JsonSchemaRejection> for Error {
+	fn from(error: axum_jsonschema::JsonSchemaRejection) -> Self {
+		Self::Json(error)
+	}
+}
+
 /// Error shape returned to the client.
 ///
 /// This is used for all application errors, such as database
 /// connectivity, authentication, and schema validation.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct Shape<'e> {
 	pub success: bool,
 	pub errors: Vec<Message<'e>>,
@@ -47,7 +56,7 @@ pub struct Shape<'e> {
 /// Represents a single error message, often accompanied by
 /// additional context (e.g. when a validation error displays
 /// requirements).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct Message<'e> {
 	pub content: Cow<'e, str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -63,6 +72,17 @@ impl<'e> Message<'e> {
 			field: None,
 			details: None,
 		}
+	}
+}
+
+impl OperationOutput for Error {
+	type Inner = Shape<'static>;
+
+	fn operation_response(
+		ctx: &mut aide::gen::GenContext,
+		operation: &mut aide::openapi::Operation,
+	) -> Option<aide::openapi::Response> {
+		Json::<Self::Inner>::operation_response(ctx, operation)
 	}
 }
 
@@ -92,10 +112,27 @@ impl IntoResponse for Error {
 					.into_response()
 			}
 			Error::Auth(error) => (error.status(), vec![Message::new(error.to_string().into())]),
-			Error::Json(error) => (
-				StatusCode::BAD_REQUEST,
-				vec![Message::new(error.to_string().into())],
-			),
+			Error::Json(error) => match error {
+				JsonSchemaRejection::Json(error) => (
+					StatusCode::BAD_REQUEST,
+					vec![Message::new(error.to_string().into())],
+				),
+				JsonSchemaRejection::Serde(error) => (
+					StatusCode::BAD_REQUEST,
+					vec![Message::new(error.to_string().into())],
+				),
+				JsonSchemaRejection::Schema(error) => (
+					StatusCode::BAD_REQUEST,
+					error
+						.into_iter()
+						.map(|v| Message {
+							content: v.error_description().to_string().into(),
+							field: Some(v.instance_location().to_string().into()),
+							details: None,
+						})
+						.collect(),
+				),
+			},
 			Error::Query(error) => (
 				StatusCode::BAD_REQUEST,
 				vec![Message::new(error.to_string().into())],

@@ -1,9 +1,11 @@
+use aide::{openapi, operation, OperationInput, OperationIo};
 use axum::{
 	body::Body,
 	extract::{FromRef, FromRequest, FromRequestParts, Request},
 	http::{header, request, Response},
 	response::IntoResponse,
 };
+use schemars::JsonSchema;
 use serde::de;
 use uuid::Uuid;
 
@@ -19,23 +21,13 @@ use crate::{error::Error, model, route::auth, session::SESSION_COOKIE_NAME, Data
 ///   // ...
 /// }
 /// ```
+#[derive(OperationIo)]
+#[aide(
+	input_with = "axum_jsonschema::Json<T>",
+	output_with = "axum_jsonschema::Json<T>",
+	json_schema
+)]
 pub struct Json<T>(pub T);
-
-#[axum::async_trait]
-impl<T, S> FromRequest<S> for Json<T>
-where
-	T: de::DeserializeOwned + validator::Validate,
-	S: Send + Sync,
-{
-	type Rejection = Error;
-
-	async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-		let result = axum::extract::Json::<T>::from_request(req, state).await?.0;
-
-		result.validate().map_err(Error::Validation)?;
-		Ok(Self(result))
-	}
-}
 
 impl<T> IntoResponse for Json<T>
 where
@@ -43,6 +35,24 @@ where
 {
 	fn into_response(self) -> Response<Body> {
 		axum::extract::Json(self.0).into_response()
+	}
+}
+
+#[axum::async_trait]
+impl<T, S> FromRequest<S> for Json<T>
+where
+	T: de::DeserializeOwned + validator::Validate + JsonSchema + 'static,
+	S: Send + Sync,
+{
+	type Rejection = Error;
+
+	async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+		let result = axum_jsonschema::Json::<T>::from_request(req, state)
+			.await?
+			.0;
+
+		result.validate().map_err(Error::Validation)?;
+		Ok(Self(result))
 	}
 }
 
@@ -55,6 +65,12 @@ where
 ///   // ...
 /// }
 /// ```
+#[derive(OperationIo)]
+#[aide(
+	input_with = "axum::extract::Query<T>",
+	output_with = "axum_jsonschema::Json<T>",
+	json_schema
+)]
 pub struct Query<T>(pub T);
 
 #[axum::async_trait]
@@ -141,5 +157,37 @@ where
 			user,
 			id: session_id,
 		})
+	}
+}
+
+impl OperationInput for Session {
+	/// Operation input for the session extractor.
+	///
+	/// This adds a session cookie requirement to the `OpenAPI` operation.
+	fn operation_input(ctx: &mut aide::gen::GenContext, operation: &mut aide::openapi::Operation) {
+		let s = ctx.schema.subschema_for::<Uuid>();
+
+		operation::add_parameters(
+			ctx,
+			operation,
+			[openapi::Parameter::Cookie {
+				parameter_data: openapi::ParameterData {
+					name: SESSION_COOKIE_NAME.to_string(),
+					required: true,
+					description: Some("The session cookie for the current user.".to_string()),
+					format: openapi::ParameterSchemaOrContent::Schema(openapi::SchemaObject {
+						json_schema: s,
+						example: None,
+						external_docs: None,
+					}),
+					extensions: Default::default(),
+					deprecated: Some(false),
+					example: None,
+					examples: Default::default(),
+					explode: None,
+				},
+				style: openapi::CookieStyle::Form,
+			}],
+		);
 	}
 }
