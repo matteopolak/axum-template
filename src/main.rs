@@ -4,6 +4,7 @@
 mod error;
 mod extract;
 mod model;
+mod ratelimit;
 mod session;
 
 mod route {
@@ -12,18 +13,26 @@ mod route {
 	pub mod posts;
 }
 
-use std::sync::Arc;
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc};
 
 use aide::{
 	axum::ApiRouter,
-	openapi::{OpenApi, SecurityScheme, Tag},
+	openapi::{self, OpenApi, SecurityScheme, Tag},
 	transform::TransformOpenApi,
 };
 use argon2::Argon2;
 
-use axum::Extension;
+use axum::{extract::Request, Extension, ServiceExt};
 pub use error::Error;
 use extract::Json;
+use tower::{Layer, ServiceBuilder};
+use tower_governor::GovernorLayer;
+use tower_http::{
+	compression::CompressionLayer,
+	cors::{self, CorsLayer},
+	normalize_path::NormalizePathLayer,
+	trace::TraceLayer,
+};
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
 pub type AppState = State;
@@ -62,13 +71,33 @@ async fn main() {
 	};
 
 	let mut openapi = OpenApi::default();
+
+	let (default, secure) = (ratelimit::default(), ratelimit::secure());
+
+	ratelimit::cleanup_old_limits(&[&default, &secure]);
+
 	let app = ApiRouter::new()
-		.nest("/auth", route::auth::routes())
+		// All non-secure routes are rate-limited with a more relaxed configuration.
 		.nest("/posts", route::posts::routes())
-		.nest_api_service("/docs", route::docs::routes())
+		.layer(GovernorLayer { config: default })
+		// Authentication routes (and other sensitive routes) are rate-limited
+		// with a more strict configuration.
+		.nest(
+			"/auth",
+			route::auth::routes().layer(GovernorLayer { config: secure }),
+		)
+		.nest_service("/docs", route::docs::routes())
 		.finish_api_with(&mut openapi, api_docs)
-		.layer(Extension(Arc::new(openapi)))
+		.layer(
+			ServiceBuilder::new()
+				.layer(Extension(Arc::new(openapi)))
+				.layer(CompressionLayer::new())
+				.layer(CorsLayer::new().allow_origin(cors::AllowOrigin::any())),
+		)
+		.layer(TraceLayer::new_for_http())
 		.with_state(state);
+
+	let app = NormalizePathLayer::trim_trailing_slash().layer(app);
 
 	let port = std::env::var("PORT").map_or_else(
 		|_| 3000,
@@ -79,9 +108,12 @@ async fn main() {
 		.await
 		.expect("failed to bind to port");
 
-	tracing::info!("listening on port {}", port);
-
-	axum::serve(listener, app).await.unwrap();
+	axum::serve(
+		listener,
+		ServiceExt::<Request>::into_make_service_with_connect_info::<SocketAddr>(app),
+	)
+	.await
+	.unwrap();
 }
 
 fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
@@ -99,11 +131,20 @@ fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
 			..Default::default()
 		})
 		.security_scheme(
-			"ApiKey",
+			"Session",
 			SecurityScheme::ApiKey {
-				location: aide::openapi::ApiKeyLocation::Header,
-				name: "Cookie".into(),
+				location: openapi::ApiKeyLocation::Cookie,
+				name: session::COOKIE_NAME.into(),
 				description: Some("A user authentication cookie".into()),
+				extensions: Default::default(),
+			},
+		)
+		.security_scheme(
+			"API Key",
+			SecurityScheme::ApiKey {
+				location: openapi::ApiKeyLocation::Header,
+				name: "X-API-Key".into(),
+				description: Some("An API key".into()),
 				extensions: Default::default(),
 			},
 		)
@@ -111,7 +152,11 @@ fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
 			res.example(error::Message {
 				content: "error message".into(),
 				field: Some("optional field".into()),
-				details: None,
+				details: Some(Cow::Owned({
+					let mut map = HashMap::new();
+					map.insert("key".into(), serde_json::json!("value"));
+					map
+				})),
 			})
 		})
 }

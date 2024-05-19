@@ -108,7 +108,6 @@ fn hash_password(
 fn me_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get the authenticated user")
 		.description("Returns the authenticated user.")
-		.response::<200, Json<model::User>>()
 		.tag("auth")
 }
 
@@ -201,8 +200,8 @@ async fn register(
 
 	sqlx::query_scalar!(
 		r#"
-      INSERT INTO "user" (id, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id
-    "#,
+			INSERT INTO "user" (id, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id
+		"#,
 		user_id,
 		auth.email,
 		auth.username,
@@ -221,8 +220,8 @@ async fn register(
 
 	let session_id = sqlx::query_scalar!(
 		r#"
-      INSERT INTO session (user_id) VALUES ($1) RETURNING id
-    "#,
+			INSERT INTO session (user_id) VALUES ($1) RETURNING id
+		"#,
 		user_id
 	)
 	.fetch_one(&mut *tx)

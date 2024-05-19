@@ -83,7 +83,6 @@ pub struct PostPaginateInput {
 fn get_user_posts_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get a user's posts")
 		.description("Returns a paginated response of a user's posts, newest first.")
-		.response::<200, Json<Vec<model::Post>>>()
 		.tag("posts")
 }
 
@@ -115,7 +114,6 @@ async fn get_user_posts(
 fn get_all_posts_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get all posts")
 		.description("Returns a paginated response of posts, newest first.")
-		.response::<200, Json<Vec<model::Post>>>()
 		.tag("posts")
 }
 
@@ -143,7 +141,6 @@ async fn get_all_posts(
 fn get_one_post_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get a single post")
 		.description("Returns a single post by its unique id.")
-		.response::<200, Json<model::Post>>()
 		.tag("posts")
 }
 

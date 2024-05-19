@@ -9,7 +9,7 @@ use schemars::JsonSchema;
 use serde::de;
 use uuid::Uuid;
 
-use crate::{error::Error, model, route::auth, session::SESSION_COOKIE_NAME, Database};
+use crate::{error::Error, model, route::auth, session, Database};
 
 /// Extractor that deserializes a JSON body and validates it.
 ///
@@ -122,15 +122,16 @@ where
 		parts: &mut request::Parts,
 		state: &S,
 	) -> Result<Self, Self::Rejection> {
-		let cookie = parts
+		let cookies = parts
 			.headers
-			.get(header::COOKIE)
-			.and_then(|value| value.to_str().ok())
-			.unwrap_or("");
+			.get_all(header::COOKIE)
+			.into_iter()
+			.filter_map(|value| value.to_str().ok());
 
-		let session_id = cookie::Cookie::split_parse(cookie)
+		let session_id = cookies
+			.flat_map(cookie::Cookie::split_parse)
 			.filter_map(Result::ok)
-			.find(|cookie| cookie.name() == SESSION_COOKIE_NAME)
+			.find(|cookie| cookie.name() == session::COOKIE_NAME)
 			.ok_or(auth::Error::NoSessionCookie)?;
 
 		let session_id =
@@ -140,10 +141,10 @@ where
 		let user = sqlx::query_as!(
 			model::User,
 			r#"
-            SELECT * FROM "user" WHERE id = (
-                SELECT user_id FROM session WHERE id = $1
-            )
-        "#,
+				SELECT * FROM "user" WHERE id = (
+					SELECT user_id FROM session WHERE id = $1
+				)
+			"#,
 			session_id
 		)
 		.fetch_optional(&database)
@@ -172,7 +173,7 @@ impl OperationInput for Session {
 			operation,
 			[openapi::Parameter::Cookie {
 				parameter_data: openapi::ParameterData {
-					name: SESSION_COOKIE_NAME.to_string(),
+					name: session::COOKIE_NAME.to_string(),
 					required: true,
 					description: Some("The session cookie for the current user.".to_string()),
 					format: openapi::ParameterSchemaOrContent::Schema(openapi::SchemaObject {

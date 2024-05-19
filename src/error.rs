@@ -11,6 +11,7 @@ use axum::{
 use axum_jsonschema::JsonSchemaRejection;
 use schemars::JsonSchema;
 use serde::Serialize;
+use tower_governor::GovernorError;
 
 use crate::route::{auth, posts};
 
@@ -33,6 +34,8 @@ pub enum Error {
 	Post(#[from] posts::Error),
 	#[error("database error: {0}")]
 	Database(#[from] sqlx::Error),
+	#[error("governor error: {0}")]
+	Governor(#[from] tower_governor::GovernorError),
 }
 
 impl From<axum_jsonschema::JsonSchemaRejection> for Error {
@@ -62,7 +65,7 @@ pub struct Message<'e> {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub field: Option<Cow<'e, str>>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub details: Option<&'e HashMap<Cow<'e, str>, serde_json::Value>>,
+	pub details: Option<Cow<'e, HashMap<Cow<'e, str>, serde_json::Value>>>,
 }
 
 impl<'e> Message<'e> {
@@ -103,7 +106,7 @@ impl IntoResponse for Error {
 								errors.iter().map(move |error| Message {
 									content: error.code.as_ref().into(),
 									field: Some(field.into()),
-									details: Some(&error.params),
+									details: Some(Cow::Borrowed(&error.params)),
 								})
 							})
 							.collect(),
@@ -138,7 +141,45 @@ impl IntoResponse for Error {
 				vec![Message::new(error.to_string().into())],
 			),
 			Error::Post(error) => (error.status(), vec![Message::new(error.to_string().into())]),
-			_ => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
+			Error::Governor(error) => match error {
+				GovernorError::TooManyRequests { headers, .. } => {
+					return (
+						StatusCode::TOO_MANY_REQUESTS,
+						headers,
+						Json(Shape {
+							errors: vec![Message {
+								content: "too many requests".into(),
+								field: None,
+								details: None,
+							}],
+							success: false,
+						}),
+					)
+						.into_response()
+				}
+				GovernorError::UnableToExtractKey => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					vec![Message::new("unable to extract key".into())],
+				),
+				GovernorError::Other { code, msg, headers } => {
+					return (
+						code,
+						headers,
+						Json(Shape {
+							errors: msg.map_or_else(Vec::new, |msg| {
+								vec![Message {
+									content: msg.into(),
+									field: None,
+									details: None,
+								}]
+							}),
+							success: false,
+						}),
+					)
+						.into_response()
+				}
+			},
+			Error::Database(..) => (StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
 		};
 
 		(
