@@ -13,8 +13,10 @@ use uuid::Uuid;
 
 use crate::{
 	error,
-	extract::{Json, Session},
-	model, AppState,
+	extract::{Json, Query, Session},
+	model,
+	openapi::tag,
+	route, AppState,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -62,20 +64,25 @@ pub fn routes() -> ApiRouter<AppState> {
 fn list_keys_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("List all API keys")
 		.description("Lists all API keys associated with the authenticated user.")
-		.tag("auth")
+		.tag(tag::KEY)
 }
 
 /// Lists all API keys associated with the authenticated user.
 async fn list_keys(
 	State(state): State<AppState>,
 	session: Session,
+	Query(paginate): Query<route::Paginate>,
 ) -> Result<impl IntoApiResponse, RouteError> {
 	let keys = sqlx::query_as!(
 		model::Key,
 		r#"
 			SELECT * FROM api_keys WHERE user_id = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3
 		"#,
-		session.user.id
+		session.user.id,
+		paginate.limit(),
+		paginate.offset()
 	)
 	.fetch_all(&state.database)
 	.await?;
@@ -86,7 +93,7 @@ async fn list_keys(
 fn create_key_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Create a new API key")
 		.description("Creates a new API key associated with the authenticated user.")
-		.tag("auth")
+		.tag(tag::KEY)
 }
 
 /// Creates a new API key associated with the authenticated user.
@@ -110,7 +117,7 @@ async fn create_key(
 fn get_key_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get an API key")
 		.description("Gets an API key associated with the authenticated user by id.")
-		.tag("auth")
+		.tag(tag::KEY)
 }
 
 /// Gets an API key associated with the authenticated user by id.
@@ -136,7 +143,7 @@ async fn get_key(
 fn delete_key_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Delete an API key")
 		.description("Deletes an API key associated with the authenticated user.")
-		.tag("auth")
+		.tag(tag::KEY)
 }
 
 /// Deletes an API key associated with the authenticated user.

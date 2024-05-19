@@ -21,7 +21,9 @@ use validator::Validate;
 use crate::{
 	error,
 	extract::{Json, Session},
-	model, session, AppState, Database,
+	model,
+	openapi::tag,
+	session, AppState, Database,
 };
 
 pub const KEY_LENGTH: usize = 32;
@@ -117,7 +119,7 @@ fn hash_password(
 fn me_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Get the authenticated user")
 		.description("Returns the authenticated user.")
-		.tag("auth")
+		.tag(tag::AUTH)
 }
 
 /// Returns the authenticated user.
@@ -129,7 +131,7 @@ fn login_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Log in to an account")
 		.description("Logs in to an account, returning an associated session cookie.")
 		.response::<200, ()>()
-		.tag("auth")
+		.tag(tag::AUTH)
 }
 
 /// Returns a session token, assuming the credentials are valid.
@@ -171,7 +173,7 @@ fn logout_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Log out of the authenticated account")
 		.description("Logs out of the authenticated account.")
 		.response::<204, ()>()
-		.tag("auth")
+		.tag(tag::AUTH)
 }
 
 /// Logs out of the authenticated account.
@@ -194,7 +196,7 @@ fn register_docs(op: TransformOperation) -> TransformOperation {
 	op.summary("Register a new account")
 		.description("Registers a new account, returning an associated session cookie.")
 		.response::<200, ()>()
-		.tag("auth")
+		.tag(tag::AUTH)
 }
 
 /// Registers a new account, returning an associated session cookie.

@@ -4,26 +4,17 @@
 mod error;
 mod extract;
 mod model;
+mod openapi;
 mod ratelimit;
+mod route;
 mod session;
 
-mod route {
-	pub mod auth;
-	pub mod docs;
-	pub mod posts;
-}
+use std::{net::SocketAddr, sync::Arc};
 
-use std::{borrow::Cow, collections::HashMap, net::SocketAddr, sync::Arc};
-
-use aide::{
-	axum::ApiRouter,
-	openapi::{self, OpenApi, SecurityScheme, Tag},
-	transform::TransformOpenApi,
-};
+use aide::{axum::ApiRouter, openapi::OpenApi};
 use argon2::Argon2;
 
 use axum::{extract::Request, Extension, ServiceExt};
-use extract::Json;
 use tower::{Layer, ServiceBuilder};
 use tower_governor::GovernorLayer;
 use tower_http::{
@@ -70,7 +61,6 @@ async fn main() {
 	};
 
 	let mut openapi = OpenApi::default();
-
 	let (default, secure) = (ratelimit::default(), ratelimit::secure());
 
 	ratelimit::cleanup_old_limits(&[&default, &secure]);
@@ -86,7 +76,7 @@ async fn main() {
 			route::auth::routes().layer(GovernorLayer { config: secure }),
 		)
 		.nest_service("/docs", route::docs::routes())
-		.finish_api_with(&mut openapi, api_docs)
+		.finish_api_with(&mut openapi, openapi::docs)
 		.layer(
 			ServiceBuilder::new()
 				.layer(Extension(Arc::new(openapi)))
@@ -118,49 +108,4 @@ async fn main() {
 	)
 	.await
 	.unwrap();
-}
-
-fn api_docs(api: TransformOpenApi) -> TransformOpenApi {
-	api.title("Axum Example Open API")
-		.summary("An example Axum application")
-		.description(include_str!("../README.md"))
-		.tag(Tag {
-			name: "auth".into(),
-			description: Some("User authentication".into()),
-			..Default::default()
-		})
-		.tag(Tag {
-			name: "posts".into(),
-			description: Some("Post management".into()),
-			..Default::default()
-		})
-		.security_scheme(
-			"Session",
-			SecurityScheme::ApiKey {
-				location: openapi::ApiKeyLocation::Cookie,
-				name: session::COOKIE_NAME.into(),
-				description: Some("A user authentication cookie".into()),
-				extensions: Default::default(),
-			},
-		)
-		.security_scheme(
-			"API Key",
-			SecurityScheme::ApiKey {
-				location: openapi::ApiKeyLocation::Header,
-				name: "X-API-Key".into(),
-				description: Some("An API key".into()),
-				extensions: Default::default(),
-			},
-		)
-		.default_response_with::<Json<error::Message>, _>(|res| {
-			res.example(error::Message {
-				content: "error message".into(),
-				field: Some("optional field".into()),
-				details: Some(Cow::Owned({
-					let mut map = HashMap::new();
-					map.insert("key".into(), serde_json::json!("value"));
-					map
-				})),
-			})
-		})
 }
