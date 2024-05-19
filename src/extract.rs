@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use aide::{openapi, operation, OperationInput, OperationIo};
 use axum::{
 	body::Body,
@@ -9,7 +11,12 @@ use schemars::JsonSchema;
 use serde::de;
 use uuid::Uuid;
 
-use crate::{error::Error, model, route::auth, session, Database};
+use crate::{
+	error::{AppError, RouteError},
+	model,
+	route::auth,
+	session, Database,
+};
 
 /// Extractor that deserializes a JSON body and validates it.
 ///
@@ -44,14 +51,14 @@ where
 	T: de::DeserializeOwned + validator::Validate + JsonSchema + 'static,
 	S: Send + Sync,
 {
-	type Rejection = Error;
+	type Rejection = AppError;
 
 	async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
 		let result = axum_jsonschema::Json::<T>::from_request(req, state)
 			.await?
 			.0;
 
-		result.validate().map_err(Error::Validation)?;
+		result.validate().map_err(Self::Rejection::Validation)?;
 		Ok(Self(result))
 	}
 }
@@ -79,7 +86,7 @@ where
 	T: de::DeserializeOwned + validator::Validate,
 	S: Send + Sync,
 {
-	type Rejection = Error;
+	type Rejection = AppError;
 
 	async fn from_request_parts(
 		parts: &mut request::Parts,
@@ -89,7 +96,7 @@ where
 			.await?
 			.0;
 
-		result.validate().map_err(Error::Validation)?;
+		result.validate().map_err(Self::Rejection::Validation)?;
 		Ok(Self(result))
 	}
 }
@@ -116,48 +123,69 @@ where
 	Database: FromRef<S>,
 	S: Sync + Send,
 {
-	type Rejection = Error;
+	type Rejection = RouteError<auth::Error>;
 
 	async fn from_request_parts(
 		parts: &mut request::Parts,
 		state: &S,
 	) -> Result<Self, Self::Rejection> {
-		let cookies = parts
-			.headers
-			.get_all(header::COOKIE)
-			.into_iter()
-			.filter_map(|value| value.to_str().ok());
+		let api_key = parts.headers.get(session::X_API_KEY);
 
-		let session_id = cookies
-			.flat_map(cookie::Cookie::split_parse)
-			.filter_map(Result::ok)
-			.find(|cookie| cookie.name() == session::COOKIE_NAME)
-			.ok_or(auth::Error::NoSessionCookie)?;
+		let (user, id) = if let Some(api_key) = api_key {
+			let api_key = Uuid::from_str(api_key.to_str().map_err(|_| auth::Error::InvalidApiKey)?)
+				.map_err(|_| auth::Error::InvalidApiKey)?;
 
-		let session_id =
-			Uuid::parse_str(session_id.value()).map_err(|_| auth::Error::InvalidSessionCookie)?;
+			let database = Database::from_ref(state);
+			let user = sqlx::query_as!(
+				model::User,
+				r#"
+				SELECT * FROM "user" WHERE id IN (
+					SELECT user_id FROM api_keys WHERE id = $1
+				)
+			"#,
+				api_key
+			)
+			.fetch_optional(&database)
+			.await?;
 
-		let database = Database::from_ref(state);
-		let user = sqlx::query_as!(
-			model::User,
-			r#"
+			let user = user.ok_or(auth::Error::InvalidApiKey)?;
+
+			(user, api_key)
+		} else {
+			let cookies = parts
+				.headers
+				.get_all(header::COOKIE)
+				.into_iter()
+				.filter_map(|value| value.to_str().ok());
+
+			let session_id = cookies
+				.flat_map(cookie::Cookie::split_parse)
+				.filter_map(Result::ok)
+				.find(|cookie| cookie.name() == session::COOKIE_NAME)
+				.ok_or(auth::Error::NoSessionCookieOrApiKey)?;
+
+			let session_id = Uuid::parse_str(session_id.value())
+				.map_err(|_| auth::Error::InvalidSessionCookie)?;
+
+			let database = Database::from_ref(state);
+			let user = sqlx::query_as!(
+				model::User,
+				r#"
 				SELECT * FROM "user" WHERE id = (
 					SELECT user_id FROM session WHERE id = $1
 				)
 			"#,
-			session_id
-		)
-		.fetch_optional(&database)
-		.await?;
+				session_id
+			)
+			.fetch_optional(&database)
+			.await?;
 
-		let Some(user) = user else {
-			return Err(auth::Error::InvalidSessionCookie.into());
+			let user = user.ok_or(auth::Error::InvalidSessionCookie)?;
+
+			(user, session_id)
 		};
 
-		Ok(Self {
-			user,
-			id: session_id,
-		})
+		Ok(Self { id, user })
 	}
 }
 

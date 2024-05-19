@@ -1,3 +1,5 @@
+pub mod keys;
+
 use aide::{
 	axum::{
 		routing::{get_with, post_with},
@@ -8,10 +10,8 @@ use aide::{
 };
 use argon2::Argon2;
 use axum::{
-	body::Body,
 	extract::State,
-	http::{header, Response, StatusCode},
-	response::IntoResponse,
+	http::{header, StatusCode},
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -19,19 +19,12 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+	error,
 	extract::{Json, Session},
 	model, session, AppState, Database,
 };
 
 pub const KEY_LENGTH: usize = 32;
-
-pub fn routes() -> ApiRouter<AppState> {
-	ApiRouter::new()
-		.api_route("/login", post_with(login, login_docs))
-		.api_route("/logout", get_with(logout, logout_docs))
-		.api_route("/register", post_with(register, register_docs))
-		.api_route("/me", get_with(me, me_docs))
-}
 
 /// An error that can occur during authentication.
 ///
@@ -45,32 +38,48 @@ pub enum Error {
 	Argon(#[from] argon2::Error),
 	#[error("cookie error: {0}")]
 	Cookie(#[from] cookie::ParseError),
-	#[error("no session cookie")]
-	NoSessionCookie,
+	#[error("no session cookie or api key")]
+	NoSessionCookieOrApiKey,
 	#[error("invalid session cookie")]
 	InvalidSessionCookie,
+	#[error("invalid api key")]
+	InvalidApiKey,
 	#[error("username already taken")]
 	UsernameTaken,
 	#[error("email already taken")]
 	EmailTaken,
 }
 
-impl Error {
-	pub fn status(&self) -> StatusCode {
+impl error::ErrorShape for Error {
+	fn status(&self) -> StatusCode {
 		match self {
 			Self::InvalidUsernameOrPassword
-			| Self::NoSessionCookie
-			| Self::InvalidSessionCookie => StatusCode::UNAUTHORIZED,
+			| Self::NoSessionCookieOrApiKey
+			| Self::InvalidSessionCookie
+			| Self::InvalidApiKey => StatusCode::UNAUTHORIZED,
 			Self::Argon(..) | Self::Cookie(..) => StatusCode::INTERNAL_SERVER_ERROR,
 			Self::UsernameTaken | Self::EmailTaken => StatusCode::CONFLICT,
 		}
 	}
+
+	fn errors(&self) -> Vec<error::Message<'_>> {
+		vec![error::Message {
+			content: self.to_string().into(),
+			field: None,
+			details: None,
+		}]
+	}
 }
 
-impl IntoResponse for Error {
-	fn into_response(self) -> Response<Body> {
-		crate::Error::from(self).into_response()
-	}
+type RouteError = error::RouteError<Error>;
+
+pub fn routes() -> ApiRouter<AppState> {
+	ApiRouter::new()
+		.api_route("/login", post_with(login, login_docs))
+		.api_route("/logout", get_with(logout, logout_docs))
+		.api_route("/register", post_with(register, register_docs))
+		.api_route("/me", get_with(me, me_docs))
+		.nest("/keys", keys::routes())
 }
 
 #[derive(Deserialize, Validate, JsonSchema)]
@@ -127,7 +136,7 @@ fn login_docs(op: TransformOperation) -> TransformOperation {
 async fn login(
 	State(state): State<AppState>,
 	Json(auth): Json<LoginInput>,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	let user = sqlx::query_as!(
 		model::User,
 		r#"SELECT * FROM "user" WHERE email = $1"#,
@@ -169,7 +178,7 @@ fn logout_docs(op: TransformOperation) -> TransformOperation {
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
 		.execute(&database)
 		.await?;
@@ -192,7 +201,7 @@ fn register_docs(op: TransformOperation) -> TransformOperation {
 async fn register(
 	State(state): State<AppState>,
 	Json(auth): Json<RegisterInput>,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	let user_id = Uuid::new_v4();
 	let hashed = hash_password(&state.hasher, &auth.password, &user_id).map_err(Error::Argon)?;
 
@@ -213,9 +222,9 @@ async fn register(
 		sqlx::Error::Database(ref d) => match d.constraint() {
 			Some("user_email_key") => Error::EmailTaken.into(),
 			Some("user_username_key") => Error::UsernameTaken.into(),
-			_ => crate::Error::Database(e),
+			_ => RouteError::from(e),
 		},
-		e => crate::Error::Database(e),
+		e => RouteError::from(e),
 	})?;
 
 	let session_id = sqlx::query_scalar!(

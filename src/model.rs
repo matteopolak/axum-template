@@ -14,8 +14,7 @@ pub struct User {
 	#[serde(skip_serializing)]
 	#[allow(dead_code)]
 	pub email: String,
-	/// argon2 and salted with `id`
-	#[serde(skip)]
+	#[serde(skip_serializing)]
 	pub password: Vec<u8>,
 	pub username: String,
 	pub created_at: chrono::DateTime<chrono::Utc>,
@@ -30,5 +29,17 @@ pub struct Post {
 	pub user_id: Uuid,
 	pub title: String,
 	pub content: String,
+	pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A model representing a single API key.
+///
+/// Use this when automating tasks or when performing actions on behalf of a user.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Key {
+	pub id: Uuid,
+	#[serde(skip)]
+	#[allow(dead_code)]
+	pub user_id: Uuid,
 	pub created_at: chrono::DateTime<chrono::Utc>,
 }

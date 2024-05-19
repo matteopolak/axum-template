@@ -1,6 +1,8 @@
+use axum::http::HeaderName;
 use uuid::Uuid;
 
 pub const COOKIE_NAME: &str = "sessionid";
+pub const X_API_KEY: HeaderName = HeaderName::from_static("x-api-key");
 
 /// Creates a session cookie with no expiry
 pub fn create_cookie(session_id: Uuid) -> cookie::Cookie<'static> {

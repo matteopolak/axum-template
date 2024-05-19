@@ -14,6 +14,8 @@ use tower_governor::{
 	GovernorError,
 };
 
+use crate::error;
+
 pub fn default() -> Arc<GovernorConfig<PeerIpKeyExtractor, StateInformationMiddleware>> {
 	Arc::new(
 		GovernorConfigBuilder::default()
@@ -38,7 +40,7 @@ pub fn secure() -> Arc<GovernorConfig<PeerIpKeyExtractor, StateInformationMiddle
 }
 
 fn error_handler(error: GovernorError) -> Response<Body> {
-	crate::Error::from(error).into_response()
+	error::AppError::from(error).into_response()
 }
 
 pub fn cleanup_old_limits<T, M>(configs: &[&Arc<GovernorConfig<T, M>>])

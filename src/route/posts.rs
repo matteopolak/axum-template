@@ -1,33 +1,27 @@
+use std::borrow::Cow;
+
 use aide::{
 	axum::{
 		routing::{get_with, post_with},
 		ApiRouter, IntoApiResponse,
 	},
 	transform::TransformOperation,
-	OperationOutput,
 };
 use axum::{
-	body::Body,
 	extract::{Path, State},
-	http::{Response, StatusCode},
-	response::IntoResponse,
+	http::StatusCode,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::json;
 use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
+	error,
 	extract::{Json, Query, Session},
 	model, AppState, Database,
 };
-
-pub fn routes() -> ApiRouter<AppState> {
-	ApiRouter::new()
-		.api_route("/", get_with(get_all_posts, get_all_posts_docs))
-		.api_route("/me", post_with(get_user_posts, get_user_posts_docs))
-		.api_route("/:id", post_with(get_one_post, get_one_post_docs))
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -35,29 +29,35 @@ pub enum Error {
 	UnknownPost(Uuid),
 }
 
-impl Error {
-	pub fn status(&self) -> StatusCode {
+impl error::ErrorShape for Error {
+	fn status(&self) -> StatusCode {
 		match self {
 			Self::UnknownPost(..) => StatusCode::NOT_FOUND,
 		}
 	}
-}
 
-impl IntoResponse for Error {
-	fn into_response(self) -> Response<Body> {
-		crate::Error::from(self).into_response()
+	fn errors(&self) -> Vec<error::Message<'_>> {
+		match self {
+			Self::UnknownPost(post) => vec![error::Message {
+				content: "unknown_post".into(),
+				field: None,
+				details: Some(Cow::Owned({
+					let mut map = error::Map::new();
+					map.insert("post".into(), json!(post));
+					map
+				})),
+			}],
+		}
 	}
 }
 
-impl OperationOutput for Error {
-	type Inner = <crate::Error as OperationOutput>::Inner;
+type RouteError = error::RouteError<Error>;
 
-	fn operation_response(
-		ctx: &mut aide::gen::GenContext,
-		operation: &mut aide::openapi::Operation,
-	) -> Option<aide::openapi::Response> {
-		crate::Error::operation_response(ctx, operation)
-	}
+pub fn routes() -> ApiRouter<AppState> {
+	ApiRouter::new()
+		.api_route("/", get_with(get_all_posts, get_all_posts_docs))
+		.api_route("/me", post_with(get_user_posts, get_user_posts_docs))
+		.api_route("/:id", post_with(get_one_post, get_one_post_docs))
 }
 
 /// These can be removed when [`serde`] supports
@@ -92,7 +92,7 @@ async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -121,7 +121,7 @@ fn get_all_posts_docs(op: TransformOperation) -> TransformOperation {
 async fn get_all_posts(
 	State(database): State<Database>,
 	Query(paginate): Query<PostPaginateInput>,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -148,7 +148,7 @@ fn get_one_post_docs(op: TransformOperation) -> TransformOperation {
 async fn get_one_post(
 	State(database): State<Database>,
 	Path(post_id): Path<Uuid>,
-) -> Result<impl IntoApiResponse, crate::Error> {
+) -> Result<impl IntoApiResponse, RouteError> {
 	let post = sqlx::query_as!(
 		model::Post,
 		r#"
@@ -160,8 +160,5 @@ async fn get_one_post(
 	.fetch_optional(&database)
 	.await?;
 
-	match post {
-		Some(post) => Ok(Json(post)),
-		None => Err(Error::UnknownPost(post_id).into()),
-	}
+	Ok(Json(post.ok_or(Error::UnknownPost(post_id))?))
 }

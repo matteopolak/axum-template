@@ -23,7 +23,6 @@ use aide::{
 use argon2::Argon2;
 
 use axum::{extract::Request, Extension, ServiceExt};
-pub use error::Error;
 use extract::Json;
 use tower::{Layer, ServiceBuilder};
 use tower_governor::GovernorLayer;
@@ -92,7 +91,12 @@ async fn main() {
 			ServiceBuilder::new()
 				.layer(Extension(Arc::new(openapi)))
 				.layer(CompressionLayer::new())
-				.layer(CorsLayer::new().allow_origin(cors::AllowOrigin::any())),
+				.layer(
+					CorsLayer::new()
+						.allow_origin(cors::AllowOrigin::any())
+						.allow_headers([session::X_API_KEY])
+						.vary(Vec::new()),
+				),
 		)
 		.layer(TraceLayer::new_for_http())
 		.with_state(state);
