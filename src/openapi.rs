@@ -8,9 +8,9 @@ use aide::{
 use crate::{error, extract::Json, session};
 
 pub mod tag {
-	pub const AUTH: &str = "auth";
-	pub const POST: &str = "post";
-	pub const KEY: &str = "key";
+	pub const AUTH: &str = "Auth";
+	pub const POST: &str = "Post";
+	pub const KEY: &str = "Key";
 }
 
 pub fn docs(api: TransformOpenApi) -> TransformOpenApi {

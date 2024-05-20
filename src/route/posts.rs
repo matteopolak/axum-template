@@ -1,16 +1,14 @@
 use std::borrow::Cow;
 
-use aide::{
-	axum::{
-		routing::{get_with, post_with},
-		ApiRouter,
-	},
-	transform::TransformOperation,
+use aide::axum::{
+	routing::{get_with, post_with},
+	ApiRouter,
 };
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
 };
+use macros::route;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -59,18 +57,13 @@ pub fn routes() -> ApiRouter<AppState> {
 		.api_route("/:id", post_with(get_one_post, get_one_post_docs))
 }
 
-fn get_user_posts_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Get a user's posts")
-		.description("Returns a paginated response of a user's posts, newest first.")
-		.tag(tag::POST)
-}
-
-/// Returns a paginated response of a user's posts,
-/// newest first.
+/// Get own posts
+/// Returns a paginated response of your posts, newest first.
+#[route(tag = tag::POST)]
 async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
-	Query(paginate): Query<super::Paginate>,
+	Query(paginate): Query<super::PaginateInput>,
 ) -> Result<Json<Vec<model::Post>>, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
@@ -90,16 +83,12 @@ async fn get_user_posts(
 	Ok(Json(posts))
 }
 
-fn get_all_posts_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Get all posts")
-		.description("Returns a paginated response of posts, newest first.")
-		.tag(tag::POST)
-}
-
-/// Returns a paginated response of posts, newest first.
+/// Get all posts
+/// Returns a paginated response of all posts, newest first.
+#[route(tag = tag::POST)]
 async fn get_all_posts(
 	State(database): State<Database>,
-	Query(paginate): Query<super::Paginate>,
+	Query(paginate): Query<super::PaginateInput>,
 ) -> Result<Json<Vec<model::Post>>, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
@@ -117,13 +106,9 @@ async fn get_all_posts(
 	Ok(Json(posts))
 }
 
-fn get_one_post_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Get a single post")
-		.description("Returns a single post by its unique id.")
-		.tag(tag::POST)
-}
-
+/// Get single post
 /// Returns a single post by its unique id.
+#[route(tag = tag::POST)]
 async fn get_one_post(
 	State(database): State<Database>,
 	Path(post_id): Path<Uuid>,

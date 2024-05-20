@@ -1,13 +1,11 @@
 use std::borrow::Cow;
 
-use aide::{
-	axum::{routing::get_with, ApiRouter, IntoApiResponse},
-	transform::TransformOperation,
-};
+use aide::axum::{routing::get_with, ApiRouter, IntoApiResponse};
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
 };
+use macros::route;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -61,17 +59,13 @@ pub fn routes() -> ApiRouter<AppState> {
 		)
 }
 
-fn list_keys_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("List all API keys")
-		.description("Lists all API keys associated with the authenticated user.")
-		.tag(tag::KEY)
-}
-
+/// List API keys
 /// Lists all API keys associated with the authenticated user.
+#[route(tag = tag::KEY)]
 async fn list_keys(
 	State(state): State<AppState>,
 	session: Session,
-	Query(paginate): Query<route::Paginate>,
+	Query(paginate): Query<route::PaginateInput>,
 ) -> Result<impl IntoApiResponse, RouteError> {
 	let keys = sqlx::query_as!(
 		model::Key,
@@ -90,13 +84,9 @@ async fn list_keys(
 	Ok(Json(keys))
 }
 
-fn create_key_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Create a new API key")
-		.description("Creates a new API key associated with the authenticated user.")
-		.tag(tag::KEY)
-}
-
+/// Create API key
 /// Creates a new API key associated with the authenticated user.
+#[route(tag = tag::KEY)]
 async fn create_key(
 	State(state): State<AppState>,
 	session: Session,
@@ -114,13 +104,9 @@ async fn create_key(
 	Ok(Json(key))
 }
 
-fn get_key_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Get an API key")
-		.description("Gets an API key associated with the authenticated user by id.")
-		.tag(tag::KEY)
-}
-
+/// Get API key
 /// Gets an API key associated with the authenticated user by id.
+#[route(tag = tag::KEY)]
 async fn get_key(
 	State(state): State<AppState>,
 	session: Session,
@@ -140,13 +126,9 @@ async fn get_key(
 	Ok(Json(key.ok_or(Error::UnknownKey(key_id))?))
 }
 
-fn delete_key_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Delete an API key")
-		.description("Deletes an API key associated with the authenticated user.")
-		.tag(tag::KEY)
-}
-
+/// Delete API key
 /// Deletes an API key associated with the authenticated user.
+#[route(tag = tag::KEY)]
 async fn delete_key(
 	State(state): State<AppState>,
 	session: Session,

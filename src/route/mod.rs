@@ -17,7 +17,7 @@ fn ten() -> i64 {
 }
 
 #[derive(Deserialize, Validate, JsonSchema)]
-pub struct Paginate {
+pub struct PaginateInput {
 	/// The page number to return (1-indexed).
 	#[validate(range(min = 1, max = 100))]
 	#[serde(default = "one")]
@@ -28,7 +28,7 @@ pub struct Paginate {
 	pub size: i64,
 }
 
-impl Paginate {
+impl PaginateInput {
 	pub fn offset(&self) -> i64 {
 		(self.page - 1) * self.size
 	}

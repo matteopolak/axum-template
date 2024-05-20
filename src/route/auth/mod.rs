@@ -5,7 +5,6 @@ use aide::{
 		routing::{get_with, post_with},
 		ApiRouter, IntoApiResponse,
 	},
-	transform::TransformOperation,
 	NoApi,
 };
 use argon2::Argon2;
@@ -13,6 +12,7 @@ use axum::{
 	extract::State,
 	http::{header, StatusCode},
 };
+use macros::route;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -116,25 +116,16 @@ fn hash_password(
 	Ok(hash)
 }
 
-fn me_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Get the authenticated user")
-		.description("Returns the authenticated user.")
-		.tag(tag::AUTH)
-}
-
+/// Get authenticated user
 /// Returns the authenticated user.
+#[route(tag = tag::AUTH)]
 async fn me(session: Session) -> impl IntoApiResponse {
 	Json(session.user)
 }
 
-fn login_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Log in to an account")
-		.description("Logs in to an account, returning an associated session cookie.")
-		.response::<200, ()>()
-		.tag(tag::AUTH)
-}
-
-/// Returns a session token, assuming the credentials are valid.
+/// Log in
+/// Logs in to an account, returning an associated session cookie.
+#[route(tag = tag::AUTH, response(status = 200, description = "Logged in successfully"))]
 async fn login(
 	State(state): State<AppState>,
 	Json(auth): Json<LoginInput>,
@@ -169,14 +160,9 @@ async fn login(
 	Ok(NoApi([(header::SET_COOKIE, cookie.to_string())]))
 }
 
-fn logout_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Log out of the authenticated account")
-		.description("Logs out of the authenticated account.")
-		.response::<204, ()>()
-		.tag(tag::AUTH)
-}
-
+/// Log out
 /// Logs out of the authenticated account.
+#[route(tag = tag::AUTH, response(status = 204, description = "Logged out successfully"))]
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
@@ -192,14 +178,9 @@ async fn logout(
 	))
 }
 
-fn register_docs(op: TransformOperation) -> TransformOperation {
-	op.summary("Register a new account")
-		.description("Registers a new account, returning an associated session cookie.")
-		.response::<200, ()>()
-		.tag(tag::AUTH)
-}
-
+/// Register account
 /// Registers a new account, returning an associated session cookie.
+#[route(tag = tag::AUTH, response(status = 200, description = "Registered successfully"))]
 async fn register(
 	State(state): State<AppState>,
 	Json(auth): Json<RegisterInput>,

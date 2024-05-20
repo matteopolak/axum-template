@@ -1,9 +1,13 @@
+[workspace]
+members = ["macros", "."]
+
 [package]
 name = "axum-template"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+macros = { path = "macros" }
 aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.7", features = ["macros"] }
