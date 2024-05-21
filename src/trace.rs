@@ -22,7 +22,14 @@ fn resource() -> Resource {
 		[
 			KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
 			KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-			KeyValue::new(DEPLOYMENT_ENVIRONMENT, "develop"),
+			KeyValue::new(
+				DEPLOYMENT_ENVIRONMENT,
+				if cfg!(debug_assertions) {
+					"development"
+				} else {
+					"production"
+				},
+			),
 		],
 		SCHEMA_URL,
 	)
@@ -39,7 +46,7 @@ fn init_meter_provider() -> SdkMeterProvider {
 		.unwrap();
 
 	let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-		.with_interval(std::time::Duration::from_secs(30))
+		.with_interval(std::time::Duration::from_secs(5))
 		.build();
 
 	// For debugging in development
@@ -49,30 +56,17 @@ fn init_meter_provider() -> SdkMeterProvider {
 	)
 	.build();
 
-	// Rename foo metrics to foo_named and drop key_2 attribute
-	let view_foo = |instrument: &Instrument| -> Option<Stream> {
-		if instrument.name == "foo" {
-			Some(
-				Stream::new()
-					.name("foo_named")
-					.allowed_attribute_keys([Key::from("key_1")]),
-			)
-		} else {
-			None
-		}
-	};
-
 	// Set Custom histogram boundaries for baz metrics
-	let view_baz = |instrument: &Instrument| -> Option<Stream> {
-		if instrument.name == "baz" {
-			Some(
-				Stream::new()
-					.name("baz")
-					.aggregation(Aggregation::ExplicitBucketHistogram {
-						boundaries: vec![0.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0],
-						record_min_max: true,
-					}),
-			)
+	let view_latency = |instrument: &Instrument| -> Option<Stream> {
+		println!("{:?}", instrument.name);
+
+		if instrument.name == "request" {
+			Some(Stream::new().name("request").allowed_attribute_keys([
+				Key::from("request_id"),
+				Key::from("method"),
+				Key::from("uri"),
+				Key::from("version"),
+			]))
 		} else {
 			None
 		}
@@ -82,8 +76,7 @@ fn init_meter_provider() -> SdkMeterProvider {
 		.with_resource(resource())
 		.with_reader(reader)
 		.with_reader(stdout_reader)
-		.with_view(view_foo)
-		.with_view(view_baz)
+		.with_view(view_latency)
 		.build();
 
 	global::set_meter_provider(meter_provider.clone());
@@ -119,7 +112,7 @@ pub fn init_tracing_subscriber() -> OtelGuard {
 		.with(tracing_subscriber::filter::LevelFilter::from_level(
 			Level::INFO,
 		))
-		.with(tracing_subscriber::fmt::layer())
+		.with(tracing_subscriber::fmt::layer().with_ansi(true))
 		.with(MetricsLayer::new(meter_provider.clone()))
 		.with(OpenTelemetryLayer::new(init_tracer()))
 		.init();
@@ -127,7 +120,7 @@ pub fn init_tracing_subscriber() -> OtelGuard {
 	OtelGuard { meter_provider }
 }
 
-struct OtelGuard {
+pub struct OtelGuard {
 	meter_provider: SdkMeterProvider,
 }
 
@@ -136,6 +129,7 @@ impl Drop for OtelGuard {
 		if let Err(err) = self.meter_provider.shutdown() {
 			eprintln!("{err:?}");
 		}
+
 		opentelemetry::global::shutdown_tracer_provider();
 	}
 }

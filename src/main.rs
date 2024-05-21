@@ -28,7 +28,7 @@ use tower_http::{
 	trace::TraceLayer,
 	ServiceBuilderExt as _,
 };
-use tracing::Span;
+use tracing::{Level, Span};
 
 const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -100,9 +100,11 @@ async fn main() {
 				.layer(
 					TraceLayer::new_for_http()
 						.make_span_with(|request: &Request<Body>| {
-							let request_id = request.headers().get(X_REQUEST_ID);
+							let Some(request_id) = request.headers().get(X_REQUEST_ID) else {
+								return tracing::error_span!("missing request_id");
+							};
 
-							tracing::debug_span!(
+							tracing::info_span!(
 								"request",
 								request_id = ?request_id,
 								method = %request.method(),
@@ -112,16 +114,13 @@ async fn main() {
 						})
 						.on_response(
 							|response: &Response<Body>, latency: Duration, span: &Span| {
+								let _guard = span.enter();
 								let status = response.status();
-								let request_id = response.headers().get(X_REQUEST_ID);
 
-								span.record("status", status.as_u16());
-								span.record("latency", latency.as_millis());
-
-								tracing::debug!(
+								tracing::event!(
+									Level::INFO,
 									status = %status,
 									histogram.latency_ms = %latency.as_millis(),
-									request_id = ?request_id,
 									"response"
 								);
 							},
