@@ -2,44 +2,56 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use uuid::Uuid;
 
-/// A model representing a single user.
-///
-/// Use this when fetching from the database and returning to the client.
-/// The `email` and `password` fields are not serialized to the client.
+/// A single user.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct User {
+	/// The unique identifier of the user.
+	#[serde(skip_deserializing)]
 	pub id: Uuid,
-	/// This isn't used yet, but it can be used to send password resets,
-	/// important announcements, and security events.
+	/// The user's primary email address, used for logging in and password resets.
 	#[serde(skip_serializing)]
 	#[allow(dead_code)]
 	pub email: String,
+	/// The hashed password.
 	#[serde(skip_serializing)]
 	pub password: Vec<u8>,
+	/// The username that is displayed to the public.
 	pub username: String,
+	/// The creation time of the user.
+	#[serde(skip_deserializing)]
 	pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// A model representing a single post.
-///
-/// Use this when fetching from the database and returning to the client.
+/// A single post, created by a user.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Post {
+	/// The unique identifier of the post.
+	#[serde(skip_deserializing)]
 	pub id: Uuid,
+	/// The user that created the post.
+	#[serde(skip_deserializing)]
 	pub user_id: Uuid,
+	/// The title of the post.
 	pub title: String,
+	/// The content of the post in Markdown format.
 	pub content: String,
+	/// The creation time of the post.
+	#[serde(skip_deserializing)]
 	pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// A model representing a single API key.
-///
-/// Use this when automating tasks or when performing actions on behalf of a user.
+/// A single API key, owned by a user and used to perform automated
+/// actions on their behalf.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Key {
+	/// The API key.
+	#[serde(skip_deserializing)]
 	pub id: Uuid,
-	#[serde(skip)]
+	/// The user that owns the key.
+	#[serde(skip_deserializing)]
 	#[allow(dead_code)]
 	pub user_id: Uuid,
+	/// The creation time of the key.
+	#[serde(skip_deserializing)]
 	pub created_at: chrono::DateTime<chrono::Utc>,
 }

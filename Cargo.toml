@@ -8,24 +8,30 @@ edition = "2021"
 
 [dependencies]
 macros = { path = "macros" }
-aide = { version = "0.13.4", features = ["axum", "macros", "scalar"] }
+aide = { version = "0.13", features = ["axum", "macros", "scalar"] }
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.7", features = ["macros"] }
-axum-jsonschema = { version = "0.8.0", features = ["aide"] }
+axum-jsonschema = { version = "0.8", features = ["aide"] }
 chrono = { version = "0.4", features = ["serde"] }
 cookie = "0.18"
 dotenvy = "0.15"
 governor = "0.6"
-schemars = { version = "0.8.20", features = ["chrono", "uuid1"] }
+schemars = { version = "0.8", features = ["chrono", "uuid1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.7", features = ["postgres", "runtime-tokio", "uuid", "chrono"] }
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tower = "0.4.13"
-tower-http = { version = "0.5", features = ["compression-full", "cors", "normalize-path", "trace"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["compression-full", "cors", "normalize-path", "request-id", "trace", "util"] }
 tower_governor = "0.4"
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std", "fmt"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 validator = { version = "0.18", features = ["derive"] }
+tracing-opentelemetry = "0.23"
+opentelemetry_sdk = { version = "0.23", features = ["rt-tokio", "trace"] }
+opentelemetry = { version = "0.23", features = ["trace", "metrics"] }
+opentelemetry-semantic-conventions = "0.15"
+opentelemetry-otlp = { version = "0.16", features = ["metrics"] }
+opentelemetry-stdout = { version = "0.4", features = ["trace", "metrics"] }

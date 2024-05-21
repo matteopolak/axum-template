@@ -16,6 +16,9 @@ use tower_governor::{
 
 use crate::error;
 
+/// Creates a default rate limiting configuration.
+///
+/// Limits requests to 10 per second with a burst size of 50.
 pub fn default() -> Arc<GovernorConfig<PeerIpKeyExtractor, StateInformationMiddleware>> {
 	Arc::new(
 		GovernorConfigBuilder::default()
@@ -28,6 +31,9 @@ pub fn default() -> Arc<GovernorConfig<PeerIpKeyExtractor, StateInformationMiddl
 	)
 }
 
+/// Creates a secure rate limiting configuration.
+///
+/// Limits requests to 1 per second with no burst size.
 pub fn secure() -> Arc<GovernorConfig<PeerIpKeyExtractor, StateInformationMiddleware>> {
 	Arc::new(
 		GovernorConfigBuilder::default()
@@ -43,6 +49,7 @@ fn error_handler(error: GovernorError) -> Response<Body> {
 	error::AppError::from(error).into_response()
 }
 
+/// Removes old rate limiting limits from the storage every 60 seconds.
 pub fn cleanup_old_limits<T, M>(configs: &[&Arc<GovernorConfig<T, M>>])
 where
 	T: KeyExtractor,

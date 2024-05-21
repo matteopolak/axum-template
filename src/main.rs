@@ -8,21 +8,29 @@ mod openapi;
 mod ratelimit;
 mod route;
 mod session;
+mod trace;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use aide::{axum::ApiRouter, openapi::OpenApi};
 use argon2::Argon2;
 
-use axum::{extract::Request, Extension, ServiceExt};
+use axum::{
+	body::Body, extract::Request, http::HeaderName, response::Response, Extension, ServiceExt,
+};
+
 use tower::{Layer, ServiceBuilder};
 use tower_governor::GovernorLayer;
 use tower_http::{
-	compression::CompressionLayer,
 	cors::{self, CorsLayer},
 	normalize_path::NormalizePathLayer,
+	request_id::MakeRequestUuid,
 	trace::TraceLayer,
+	ServiceBuilderExt as _,
 };
+use tracing::Span;
+
+const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
 pub type AppState = State;
@@ -42,7 +50,7 @@ pub struct State {
 
 #[tokio::main]
 async fn main() {
-	tracing_subscriber::fmt::init();
+	let _guard = trace::init_tracing_subscriber();
 	let _ = dotenvy::dotenv();
 
 	aide::gen::on_error(|error| {
@@ -66,29 +74,61 @@ async fn main() {
 	ratelimit::cleanup_old_limits(&[&default, &secure]);
 
 	let app = ApiRouter::new()
-		// All non-secure routes are rate-limited with a more relaxed configuration.
 		.nest("/posts", route::posts::routes())
+		// All non-secure routes are rate-limited with a more relaxed configuration.
 		.layer(GovernorLayer { config: default })
-		// Authentication routes (and other sensitive routes) are rate-limited
-		// with a more strict configuration.
 		.nest(
 			"/auth",
-			route::auth::routes().layer(GovernorLayer { config: secure }),
+			route::auth::routes()
+				// Authentication routes (and other sensitive routes) are rate-limited
+				// with a more strict configuration.
+				.layer(GovernorLayer { config: secure }),
+		)
+		.layer(
+			CorsLayer::new()
+				.allow_origin(cors::AllowOrigin::any())
+				.allow_headers([session::X_API_KEY])
+				.vary(Vec::new()),
 		)
 		.nest_service("/docs", route::docs::routes())
 		.finish_api_with(&mut openapi, openapi::docs)
 		.layer(
 			ServiceBuilder::new()
 				.layer(Extension(Arc::new(openapi)))
-				.layer(CompressionLayer::new())
+				.compression()
+				.set_request_id(X_REQUEST_ID, MakeRequestUuid)
 				.layer(
-					CorsLayer::new()
-						.allow_origin(cors::AllowOrigin::any())
-						.allow_headers([session::X_API_KEY])
-						.vary(Vec::new()),
-				),
+					TraceLayer::new_for_http()
+						.make_span_with(|request: &Request<Body>| {
+							let request_id = request.headers().get(X_REQUEST_ID);
+
+							tracing::debug_span!(
+								"request",
+								request_id = ?request_id,
+								method = %request.method(),
+								uri = %request.uri(),
+								version = ?request.version(),
+							)
+						})
+						.on_response(
+							|response: &Response<Body>, latency: Duration, span: &Span| {
+								let status = response.status();
+								let request_id = response.headers().get(X_REQUEST_ID);
+
+								span.record("status", status.as_u16());
+								span.record("latency", latency.as_millis());
+
+								tracing::debug!(
+									status = %status,
+									histogram.latency_ms = %latency.as_millis(),
+									request_id = ?request_id,
+									"response"
+								);
+							},
+						),
+				)
+				.propagate_request_id(X_REQUEST_ID),
 		)
-		.layer(TraceLayer::new_for_http())
 		.with_state(state);
 
 	let app = NormalizePathLayer::trim_trailing_slash().layer(app);

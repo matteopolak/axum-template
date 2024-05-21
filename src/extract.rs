@@ -101,6 +101,19 @@ where
 	}
 }
 
+/// A session or API key.
+///
+/// When fetching a user through cookie authentication,
+/// this will be a [`SessionOrApiKey::Session`].
+///
+/// When fetching a user through API key authentication,
+/// this will be a [`SessionOrApiKey::ApiKey`].
+#[derive(Debug)]
+pub enum SessionOrApiKey {
+	Session(Uuid),
+	ApiKey(Uuid),
+}
+
 /// Extracts the session and related user from the request.
 ///
 /// If it does not exist, a [`auth::Error::NoSessionCookie`] is returned.
@@ -113,7 +126,7 @@ where
 /// ```
 #[derive(Debug)]
 pub struct Session {
-	pub id: Uuid,
+	pub id: SessionOrApiKey,
 	pub user: model::User,
 }
 
@@ -125,13 +138,14 @@ where
 {
 	type Rejection = RouteError<auth::Error>;
 
+	/// Extracts the session from the request using a session cookie or API key.
 	async fn from_request_parts(
 		parts: &mut request::Parts,
 		state: &S,
 	) -> Result<Self, Self::Rejection> {
 		let api_key = parts.headers.get(session::X_API_KEY);
 
-		let (user, id) = if let Some(api_key) = api_key {
+		Ok(if let Some(api_key) = api_key {
 			let api_key = Uuid::from_str(api_key.to_str().map_err(|_| auth::Error::InvalidApiKey)?)
 				.map_err(|_| auth::Error::InvalidApiKey)?;
 
@@ -150,7 +164,10 @@ where
 
 			let user = user.ok_or(auth::Error::InvalidApiKey)?;
 
-			(user, api_key)
+			Session {
+				user,
+				id: SessionOrApiKey::ApiKey(api_key),
+			}
 		} else {
 			let cookies = parts
 				.headers
@@ -182,10 +199,11 @@ where
 
 			let user = user.ok_or(auth::Error::InvalidSessionCookie)?;
 
-			(user, session_id)
-		};
-
-		Ok(Self { id, user })
+			Session {
+				user,
+				id: SessionOrApiKey::Session(session_id),
+			}
+		})
 	}
 }
 

@@ -20,7 +20,7 @@ use validator::Validate;
 
 use crate::{
 	error,
-	extract::{Json, Session},
+	extract::{Json, Session, SessionOrApiKey},
 	model,
 	openapi::tag,
 	session, AppState, Database,
@@ -161,15 +161,24 @@ async fn login(
 }
 
 /// Log out
-/// Logs out of the authenticated account.
+/// Logs out of the authenticated account. If authenticated with an API key, it will be invalidated.
 #[route(tag = tag::AUTH, response(status = 204, description = "Logged out successfully"))]
 async fn logout(
 	State(database): State<Database>,
 	session: Session,
 ) -> Result<impl IntoApiResponse, RouteError> {
-	sqlx::query!("DELETE FROM session WHERE id = $1", session.id)
-		.execute(&database)
-		.await?;
+	match session.id {
+		SessionOrApiKey::Session(id) => {
+			sqlx::query!("DELETE FROM session WHERE id = $1", id)
+				.execute(&database)
+				.await?;
+		}
+		SessionOrApiKey::ApiKey(id) => {
+			sqlx::query!("DELETE FROM api_keys WHERE id = $1", id)
+				.execute(&database)
+				.await?;
+		}
+	}
 
 	// Clear the session cookie
 	Ok((

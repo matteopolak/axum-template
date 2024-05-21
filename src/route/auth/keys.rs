@@ -127,24 +127,25 @@ async fn get_key(
 }
 
 /// Delete API key
-/// Deletes an API key associated with the authenticated user.
+/// Deletes an API key associated with the authenticated user by id.
 #[route(tag = tag::KEY)]
 async fn delete_key(
 	State(state): State<AppState>,
 	session: Session,
+	Path(key_id): Path<Uuid>,
 ) -> Result<impl IntoApiResponse, RouteError> {
 	let status = sqlx::query!(
 		r#"
 			DELETE FROM api_keys WHERE id = $1 AND user_id = $2
 		"#,
-		session.id,
+		key_id,
 		session.user.id
 	)
 	.execute(&state.database)
 	.await?;
 
 	if status.rows_affected() == 0 {
-		return Err(Error::UnknownKey(session.id).into());
+		return Err(Error::UnknownKey(key_id).into());
 	}
 
 	Ok(())
