@@ -17,6 +17,30 @@ use tower_governor::GovernorError;
 
 pub use std::collections::HashMap as Map;
 
+pub trait ErrorShape: Sized {
+	fn errors(&self) -> Vec<Message<'_>>;
+	fn status(&self) -> StatusCode;
+	fn headers(&self) -> Option<HeaderMap> {
+		None
+	}
+
+	fn into_response(self) -> Response<Body> {
+		let mut response = Json(Shape {
+			success: false,
+			errors: self.errors(),
+		})
+		.into_response();
+
+		*response.status_mut() = self.status();
+
+		if let Some(headers) = self.headers() {
+			*response.headers_mut() = headers;
+		}
+
+		response
+	}
+}
+
 /// Error type for the application.
 ///
 /// The Display trait is not sent to the client, so it can show
@@ -62,6 +86,83 @@ impl_from_error!(
 	tower_governor::GovernorError
 );
 
+impl IntoResponse for AppError {
+	fn into_response(self) -> Response<Body> {
+		ErrorShape::into_response(self)
+	}
+}
+
+impl ErrorShape for AppError {
+	fn status(&self) -> StatusCode {
+		match self {
+			Self::Validation(..) | Self::Json(..) | Self::Query(..) => StatusCode::BAD_REQUEST,
+			Self::Database(..) => StatusCode::INTERNAL_SERVER_ERROR,
+			Self::Governor(error) => match error {
+				GovernorError::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
+				GovernorError::UnableToExtractKey => StatusCode::INTERNAL_SERVER_ERROR,
+				GovernorError::Other { code, .. } => *code,
+			},
+		}
+	}
+
+	fn headers(&self) -> Option<HeaderMap> {
+		match self {
+			Self::Governor(
+				GovernorError::TooManyRequests { headers, .. }
+				| GovernorError::Other { headers, .. },
+			) => (*headers).clone(),
+			_ => None,
+		}
+	}
+
+	fn errors(&self) -> Vec<Message<'_>> {
+		match self {
+			Self::Validation(errors) => errors
+				.field_errors()
+				.into_iter()
+				.flat_map(move |(field, errors)| {
+					errors.iter().map(move |error| Message {
+						content: error.code.as_ref().into(),
+						field: Some(field.into()),
+						details: Some(Cow::Borrowed(&error.params)),
+					})
+				})
+				.collect(),
+			Self::Json(error) => match error {
+				JsonSchemaRejection::Json(error) => vec![Message::new(error.to_string().into())],
+				JsonSchemaRejection::Serde(error) => vec![Message::new(error.to_string().into())],
+				JsonSchemaRejection::Schema(error) => error
+					.iter()
+					.map(|v| Message {
+						content: v.error_description().to_string().into(),
+						field: Some(v.instance_location().to_string().into()),
+						details: None,
+					})
+					.collect(),
+			},
+			Self::Query(error) => vec![Message::new(error.to_string().into())],
+			Self::Governor(error) => match error {
+				GovernorError::TooManyRequests { .. } => vec![Message {
+					content: "too many requests".into(),
+					field: None,
+					details: None,
+				}],
+				GovernorError::UnableToExtractKey => {
+					vec![Message::new("unable to extract key".into())]
+				}
+				GovernorError::Other { msg, .. } => msg.as_ref().map_or_else(Vec::new, |msg| {
+					vec![Message {
+						content: Cow::Borrowed(msg),
+						field: None,
+						details: None,
+					}]
+				}),
+			},
+			Self::Database(..) => Vec::new(),
+		}
+	}
+}
+
 pub enum RouteError<E> {
 	App(AppError),
 	Route(E),
@@ -73,6 +174,48 @@ where
 {
 	fn from(error: E) -> Self {
 		Self::Route(error)
+	}
+}
+
+impl<E> OperationOutput for RouteError<E> {
+	type Inner = Shape<'static>;
+
+	fn operation_response(
+		ctx: &mut aide::gen::GenContext,
+		operation: &mut aide::openapi::Operation,
+	) -> Option<aide::openapi::Response> {
+		Json::<Self::Inner>::operation_response(ctx, operation)
+	}
+}
+
+impl<E> IntoResponse for RouteError<E>
+where
+	E: ErrorShape,
+{
+	fn into_response(self) -> Response<Body> {
+		match self {
+			Self::App(error) => ErrorShape::into_response(error),
+			Self::Route(error) => error.into_response(),
+		}
+	}
+}
+
+impl<E> ErrorShape for RouteError<E>
+where
+	E: ErrorShape,
+{
+	fn errors(&self) -> Vec<Message<'_>> {
+		match self {
+			Self::App(error) => error.errors(),
+			Self::Route(error) => error.errors(),
+		}
+	}
+
+	fn status(&self) -> StatusCode {
+		match self {
+			Self::App(error) => error.status(),
+			Self::Route(error) => error.status(),
+		}
 	}
 }
 
@@ -106,152 +249,6 @@ impl<'e> Message<'e> {
 			content,
 			field: None,
 			details: None,
-		}
-	}
-}
-
-impl<E> OperationOutput for RouteError<E> {
-	type Inner = Shape<'static>;
-
-	fn operation_response(
-		ctx: &mut aide::gen::GenContext,
-		operation: &mut aide::openapi::Operation,
-	) -> Option<aide::openapi::Response> {
-		Json::<Self::Inner>::operation_response(ctx, operation)
-	}
-}
-
-impl IntoResponse for AppError {
-	fn into_response(self) -> Response<Body> {
-		ErrorShape::into_response(self)
-	}
-}
-
-impl<E> IntoResponse for RouteError<E>
-where
-	E: ErrorShape,
-{
-	fn into_response(self) -> Response<Body> {
-		match self {
-			Self::App(error) => ErrorShape::into_response(error),
-			Self::Route(error) => error.into_response(),
-		}
-	}
-}
-
-pub trait ErrorShape: Sized {
-	fn errors(&self) -> Vec<Message<'_>>;
-	fn status(&self) -> StatusCode;
-	fn headers(&self) -> Option<HeaderMap> {
-		None
-	}
-
-	fn into_response(self) -> Response<Body> {
-		let mut response = Json(Shape {
-			success: false,
-			errors: self.errors(),
-		})
-		.into_response();
-
-		*response.status_mut() = self.status();
-
-		if let Some(headers) = self.headers() {
-			*response.headers_mut() = headers;
-		}
-
-		response
-	}
-}
-
-impl<E> ErrorShape for RouteError<E>
-where
-	E: ErrorShape,
-{
-	fn errors(&self) -> Vec<Message<'_>> {
-		match self {
-			Self::App(error) => error.errors(),
-			Self::Route(error) => error.errors(),
-		}
-	}
-
-	fn status(&self) -> StatusCode {
-		match self {
-			Self::App(error) => error.status(),
-			Self::Route(error) => error.status(),
-		}
-	}
-}
-
-impl ErrorShape for AppError {
-	fn status(&self) -> StatusCode {
-		match self {
-			Self::Validation(_) => StatusCode::BAD_REQUEST,
-			Self::Json(..) => StatusCode::BAD_REQUEST,
-			Self::Query(_) => StatusCode::BAD_REQUEST,
-			Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
-			Self::Governor(error) => match error {
-				GovernorError::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
-				GovernorError::UnableToExtractKey => StatusCode::INTERNAL_SERVER_ERROR,
-				GovernorError::Other { code, .. } => *code,
-			},
-		}
-	}
-
-	fn headers(&self) -> Option<HeaderMap> {
-		match self {
-			Self::Governor(error) => match error {
-				GovernorError::TooManyRequests { headers, .. }
-				| GovernorError::Other { headers, .. } => (*headers).clone(),
-				_ => None,
-			},
-			_ => None,
-		}
-	}
-
-	fn errors(&self) -> Vec<Message<'_>> {
-		match self {
-			Self::Validation(errors) => errors
-				.field_errors()
-				.into_iter()
-				.flat_map(move |(field, errors)| {
-					errors.iter().map(move |error| Message {
-						content: error.code.as_ref().into(),
-						field: Some(field.into()),
-						details: Some(Cow::Borrowed(&error.params)),
-					})
-				})
-				.collect(),
-			Self::Json(error) => match error {
-				JsonSchemaRejection::Json(error) => vec![Message::new(error.to_string().into())],
-				JsonSchemaRejection::Serde(error) => vec![Message::new(error.to_string().into())],
-				JsonSchemaRejection::Schema(error) => error
-					.into_iter()
-					.map(|v| Message {
-						content: v.error_description().to_string().into(),
-						field: Some(v.instance_location().to_string().into()),
-						details: None,
-					})
-					.collect(),
-			},
-			Self::Query(error) => vec![Message::new(error.to_string().into())],
-			Self::Governor(error) => match error {
-				GovernorError::TooManyRequests { .. } => vec![Message {
-					content: "too many requests".into(),
-					field: None,
-					details: None,
-				}],
-				GovernorError::UnableToExtractKey => {
-					vec![Message::new("unable to extract key".into())]
-				}
-				GovernorError::Other { msg, .. } => msg.as_ref().map_or_else(Vec::new, |msg| {
-					vec![Message {
-						content: Cow::Borrowed(msg),
-						field: None,
-						details: None,
-					}]
-				}),
-			},
-			Self::Database(..) => Vec::new(),
 		}
 	}
 }

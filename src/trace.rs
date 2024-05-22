@@ -1,22 +1,22 @@
-use opentelemetry::{global, Key, KeyValue};
+use opentelemetry::{global, KeyValue};
 use opentelemetry_sdk::{
 	metrics::{
 		reader::{DefaultAggregationSelector, DefaultTemporalitySelector},
 		Aggregation, Instrument, MeterProviderBuilder, PeriodicReader, SdkMeterProvider, Stream,
 	},
 	runtime,
-	trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer},
+	trace::{BatchConfig, Sampler, Tracer},
 	Resource,
 };
 use opentelemetry_semantic_conventions::{
 	resource::{DEPLOYMENT_ENVIRONMENT, SERVICE_NAME, SERVICE_VERSION},
 	SCHEMA_URL,
 };
-use tracing::Level;
-use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
+use tracing::{level_filters::LevelFilter, Level};
+use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-// Create a Resource that captures information about the entity for which telemetry is recorded.
+/// Constructs a [`Resource`] which describes the service.
 fn resource() -> Resource {
 	Resource::from_schema_url(
 		[
@@ -35,7 +35,7 @@ fn resource() -> Resource {
 	)
 }
 
-// Construct MeterProvider for MetricsLayer
+/// Constructs an [`SdkMeterProvider`] with a custom view for latency metrics.
 fn init_meter_provider() -> SdkMeterProvider {
 	let exporter = opentelemetry_otlp::new_exporter()
 		.tonic()
@@ -50,6 +50,7 @@ fn init_meter_provider() -> SdkMeterProvider {
 		.build();
 
 	// For debugging in development
+	#[cfg(debug_assertions)]
 	let stdout_reader = PeriodicReader::builder(
 		opentelemetry_stdout::MetricsExporter::default(),
 		runtime::Tokio,
@@ -58,24 +59,24 @@ fn init_meter_provider() -> SdkMeterProvider {
 
 	// Set Custom histogram boundaries for baz metrics
 	let view_latency = |instrument: &Instrument| -> Option<Stream> {
-		println!("{:?}", instrument.name);
-
-		if instrument.name == "request" {
-			Some(Stream::new().name("request").allowed_attribute_keys([
-				Key::from("request_id"),
-				Key::from("method"),
-				Key::from("uri"),
-				Key::from("version"),
-			]))
+		if instrument.name == "latency_ms" {
+			Some(
+				Stream::new()
+					.name("latency_ms")
+					.aggregation(Aggregation::Default),
+			)
 		} else {
 			None
 		}
 	};
 
-	let meter_provider = MeterProviderBuilder::default()
+	let meter_provider = MeterProviderBuilder::default();
+	#[cfg(debug_assertions)]
+	let meter_provider = meter_provider.with_reader(stdout_reader);
+
+	let meter_provider = meter_provider
 		.with_resource(resource())
 		.with_reader(reader)
-		.with_reader(stdout_reader)
 		.with_view(view_latency)
 		.build();
 
@@ -84,18 +85,13 @@ fn init_meter_provider() -> SdkMeterProvider {
 	meter_provider
 }
 
-// Construct Tracer for OpenTelemetryLayer
+/// Constructs a [`Tracer`] with a custom sampling strategy and exporter.
 fn init_tracer() -> Tracer {
 	opentelemetry_otlp::new_pipeline()
 		.tracing()
 		.with_trace_config(
 			opentelemetry_sdk::trace::Config::default()
-				// Customize sampling strategy
-				.with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-					1.0,
-				))))
-				// If export trace to AWS X-Ray, you can use XrayIdGenerator
-				.with_id_generator(RandomIdGenerator::default())
+				.with_sampler(Sampler::TraceIdRatioBased(1.0))
 				.with_resource(resource()),
 		)
 		.with_batch_config(BatchConfig::default())
@@ -104,17 +100,16 @@ fn init_tracer() -> Tracer {
 		.unwrap()
 }
 
-// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
+/// Initializes the tracing subscriber with OpenTelemetry support, returning
+/// a guard that cleans up the global tracer and meter provider when dropped.
 pub fn init_tracing_subscriber() -> OtelGuard {
 	let meter_provider = init_meter_provider();
 
 	tracing_subscriber::registry()
-		.with(tracing_subscriber::filter::LevelFilter::from_level(
-			Level::INFO,
-		))
+		.with(LevelFilter::from_level(Level::INFO))
 		.with(tracing_subscriber::fmt::layer().with_ansi(true))
 		.with(MetricsLayer::new(meter_provider.clone()))
-		.with(OpenTelemetryLayer::new(init_tracer()))
+		.with(tracing_opentelemetry::layer().with_tracer(init_tracer()))
 		.init();
 
 	OtelGuard { meter_provider }

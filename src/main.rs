@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::default_trait_access)]
 
@@ -28,12 +29,11 @@ use tower_http::{
 	trace::TraceLayer,
 	ServiceBuilderExt as _,
 };
-use tracing::{Level, Span};
+use tracing::Span;
 
 const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
 pub type Database = sqlx::Pool<sqlx::Postgres>;
-pub type AppState = State;
 
 /// The shared application state.
 ///
@@ -43,7 +43,7 @@ pub type AppState = State;
 ///
 /// For dependencies only used by a single handler, you can combine states instead.
 #[derive(Clone, axum::extract::FromRef)]
-pub struct State {
+pub struct AppState {
 	pub database: Database,
 	pub hasher: Argon2<'static>,
 }
@@ -59,7 +59,7 @@ async fn main() {
 
 	aide::gen::extract_schemas(true);
 
-	let state = State {
+	let state = AppState {
 		database: Database::connect(
 			&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
 		)
@@ -117,8 +117,7 @@ async fn main() {
 								let _guard = span.enter();
 								let status = response.status();
 
-								tracing::event!(
-									Level::INFO,
+								tracing::info!(
 									status = %status,
 									histogram.latency_ms = %latency.as_millis(),
 									"response"
