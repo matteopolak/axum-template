@@ -49,14 +49,6 @@ fn init_meter_provider() -> SdkMeterProvider {
 		.with_interval(std::time::Duration::from_secs(5))
 		.build();
 
-	// For debugging in development
-	#[cfg(debug_assertions)]
-	let stdout_reader = PeriodicReader::builder(
-		opentelemetry_stdout::MetricsExporter::default(),
-		runtime::Tokio,
-	)
-	.build();
-
 	// Set Custom histogram boundaries for baz metrics
 	let view_latency = |instrument: &Instrument| -> Option<Stream> {
 		if instrument.name == "latency_ms" {
@@ -72,7 +64,13 @@ fn init_meter_provider() -> SdkMeterProvider {
 
 	let meter_provider = MeterProviderBuilder::default();
 	#[cfg(debug_assertions)]
-	let meter_provider = meter_provider.with_reader(stdout_reader);
+	let meter_provider = meter_provider.with_reader(
+		PeriodicReader::builder(
+			opentelemetry_stdout::MetricsExporter::default(),
+			runtime::Tokio,
+		)
+		.build(),
+	);
 
 	let meter_provider = meter_provider
 		.with_resource(resource())

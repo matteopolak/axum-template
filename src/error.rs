@@ -18,12 +18,18 @@ use tower_governor::GovernorError;
 pub use std::collections::HashMap as Map;
 
 pub trait ErrorShape: Sized {
+	/// Returns a list of error messages to be sent to the client.
 	fn errors(&self) -> Vec<Message<'_>>;
+	/// Returns the HTTP status code associated with the error.
 	fn status(&self) -> StatusCode;
+	/// Returns additional headers to be sent to the client.
+	/// This is useful for rate limiting and other headers.
 	fn headers(&self) -> Option<HeaderMap> {
 		None
 	}
 
+	/// Transforms the error into a response. Unless you need to
+	/// customize the response, you should not override this method.
 	fn into_response(self) -> Response<Body> {
 		let mut response = Json(Shape {
 			success: false,
