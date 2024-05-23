@@ -12,7 +12,3 @@ An easy-to-use, easy-to-expand template for [`axum`](https://github.com/tokio-rs
 - Ratelimiting, compression, and other middleware
 - OpenAPI schema generation and documentation with Scalar
 
-## Getting started
-
-Database models are located in [`src/model.rs`](/src/model.rs), custom extractors in [`src/extract.rs`](src/extract.rs), the main application error in [`src/error.rs`](src/error.rs), and various routes are placed in [`src/route`](src/route).
-
