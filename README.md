@@ -39,14 +39,15 @@ async fn my_route() -> Result<Json<MyType>, Error> {
   Ok(Json(MyType))
 }
 
-/// Creates an additional function:
+// Creates an additional function:
 
 use aide::transform::TransformOperation;
 
 fn my_route_docs(op: TransformOperation) -> TransformOperation {
   op.summary("My first route")
     .description("Fetches some data and gives it to you.")
-    .response_with::<200, Json<MyType>()
+    .response_with::<200, Json<MyType>(|res| res.description("Something happened"))
+    .tag("mytag")
 }
 ```
 
@@ -61,7 +62,7 @@ struct Post {
   content: String,
 }
 
-/// Creates two additional structs:
+// Creates two additional structs:
 
 #[derive(Serialize, Deserialize, JsonSchema, Validate)]
 struct CreatePostInput {
