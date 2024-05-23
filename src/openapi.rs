@@ -1,9 +1,21 @@
 use std::borrow::Cow;
+#[cfg(not(test))]
+use std::sync::Arc;
 
 use aide::{
 	openapi::{ApiKeyLocation, SecurityScheme, Tag},
 	transform::TransformOpenApi,
 };
+
+#[cfg(not(test))]
+use aide::{
+	axum::{routing::get, ApiRouter},
+	openapi::OpenApi,
+	scalar::Scalar,
+};
+
+#[cfg(not(test))]
+use axum::{response::IntoResponse, Extension};
 
 use crate::{error, extract::Json, session};
 
@@ -11,6 +23,21 @@ pub mod tag {
 	pub const AUTH: &str = "Auth";
 	pub const POST: &str = "Post";
 	pub const KEY: &str = "Key";
+}
+
+#[cfg(not(test))]
+pub fn routes() -> ApiRouter {
+	ApiRouter::new()
+		.api_route(
+			"/",
+			get(Scalar::new("/docs/private/api.json")
+				.with_title("Axum Template")
+				.axum_handler()),
+		)
+		.route(
+			"/private/api.json",
+			get(|Extension(api): Extension<Arc<OpenApi>>| async move { Json(api).into_response() }),
+		)
 }
 
 pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
@@ -34,9 +61,9 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 		})
 		.security_scheme(
 			"API Key",
-			SecurityScheme::ApiKey {
-				location: ApiKeyLocation::Header,
-				name: "X-API-Key".into(),
+			SecurityScheme::Http {
+				scheme: "bearer".into(),
+				bearer_format: Some("UUID".into()),
 				description: Some("An API key".into()),
 				extensions: Default::default(),
 			},
@@ -46,12 +73,12 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 			SecurityScheme::ApiKey {
 				location: ApiKeyLocation::Cookie,
 				name: session::COOKIE_NAME.into(),
-				description: Some("A user session cookie".into()),
+				description: Some("A session cookie".into()),
 				extensions: Default::default(),
 			},
 		)
-		.default_response_with::<Json<error::Message>, _>(|res| {
-			res.example(error::Message {
+		.default_response_with::<Json<Vec<error::Message>>, _>(|res| {
+			res.example(vec![error::Message {
 				content: "error message".into(),
 				field: Some("optional field".into()),
 				details: Some(Cow::Owned({
@@ -59,6 +86,6 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 					map.insert("key".into(), serde_json::json!("value"));
 					map
 				})),
-			})
+			}])
 		})
 }

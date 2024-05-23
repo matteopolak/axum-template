@@ -31,11 +31,7 @@ pub trait ErrorShape: Sized {
 	/// Transforms the error into a response. Unless you need to
 	/// customize the response, you should not override this method.
 	fn into_response(self) -> Response<Body> {
-		let mut response = Json(Shape {
-			success: false,
-			errors: self.errors(),
-		})
-		.into_response();
+		let mut response = Json(self.errors()).into_response();
 
 		*response.status_mut() = self.status();
 
@@ -184,7 +180,7 @@ where
 }
 
 impl<E> OperationOutput for RouteError<E> {
-	type Inner = Shape<'static>;
+	type Inner = Vec<Message<'static>>;
 
 	fn operation_response(
 		ctx: &mut aide::gen::GenContext,
@@ -223,16 +219,6 @@ where
 			Self::Route(error) => error.status(),
 		}
 	}
-}
-
-/// Error shape returned to the client.
-///
-/// This is used for all application errors, such as database
-/// connectivity, authentication, and schema validation.
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct Shape<'e> {
-	pub success: bool,
-	pub errors: Vec<Message<'e>>,
 }
 
 /// Single error message shape.

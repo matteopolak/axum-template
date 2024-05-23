@@ -1,32 +1,13 @@
-pub mod keys;
-
-use aide::{
-	axum::{
-		routing::{get_with, post_with},
-		ApiRouter, IntoApiResponse,
-	},
-	NoApi,
+use aide::axum::{
+	routing::{get_with, post_with},
+	ApiRouter,
 };
-use argon2::Argon2;
-use axum::{
-	extract::State,
-	http::{header, StatusCode},
-};
-use macros::route;
-use schemars::JsonSchema;
-use serde::Deserialize;
-use uuid::Uuid;
-use validator::Validate;
+use axum::http::StatusCode;
 
-use crate::{
-	error,
-	extract::{Json, Session, SessionOrApiKey},
-	model,
-	openapi::tag,
-	session, AppState, Database,
-};
+use crate::{error, AppState};
 
-pub const KEY_LENGTH: usize = 32;
+pub mod model;
+pub mod route;
 
 /// An error that can occur during authentication.
 ///
@@ -52,6 +33,23 @@ pub enum Error {
 	EmailTaken,
 }
 
+pub type RouteError = error::RouteError<Error>;
+
+pub fn routes() -> ApiRouter<AppState> {
+	use route::*;
+
+	ApiRouter::new()
+		.api_route("/login", post_with(login, login_docs))
+		.api_route("/logout", get_with(logout, logout_docs))
+		.api_route("/register", post_with(register, register_docs))
+		.api_route(
+			"/me",
+			get_with(get_me, get_me_docs)
+				.put_with(update_me, update_me_docs)
+				.delete_with(delete_me, delete_me_docs),
+		)
+}
+
 impl error::ErrorShape for Error {
 	fn status(&self) -> StatusCode {
 		match self {
@@ -73,164 +71,51 @@ impl error::ErrorShape for Error {
 	}
 }
 
-type RouteError = error::RouteError<Error>;
+#[cfg(test)]
+mod test {
+	use crate::test::*;
 
-pub fn routes() -> ApiRouter<AppState> {
-	ApiRouter::new()
-		.api_route("/login", post_with(login, login_docs))
-		.api_route("/logout", get_with(logout, logout_docs))
-		.api_route("/register", post_with(register, register_docs))
-		.api_route("/me", get_with(me, me_docs))
-		.nest("/keys", keys::routes())
-}
+	#[sqlx::test]
+	async fn test_signup_flow(pool: Database) {
+		let app = app(pool);
 
-#[derive(Deserialize, Validate, JsonSchema)]
-pub struct LoginInput {
-	#[validate(email)]
-	pub email: String,
-	#[validate(length(min = 8, max = 128))]
-	pub password: String,
-}
+		let response = app
+			.post("/auth/register")
+			.json(&json!({
+				"email": "john@smith.com",
+				"username": "john",
+				"password": "hunter2hunter",
+			}))
+			.await;
 
-#[derive(Deserialize, Validate, JsonSchema)]
-pub struct RegisterInput {
-	#[validate(email)]
-	pub email: String,
-	#[validate(length(min = 8, max = 128))]
-	pub password: String,
-	#[validate(length(min = 3, max = 16))]
-	pub username: String,
-}
+		assert_eq!(response.status_code(), 200);
 
-/// Hashes a password with Argon2, using the user's id as a salt.
-/// Since this is only used for logging in and creating a new password,
-/// the scope of this function can remain in here with no issues.
-fn hash_password(
-	hasher: &Argon2,
-	password: &str,
-	id: &Uuid,
-) -> Result<[u8; KEY_LENGTH], argon2::Error> {
-	let mut hash = [0; KEY_LENGTH];
+		assert!(response
+			.header("set-cookie")
+			.to_str()
+			.unwrap()
+			.contains("session="));
 
-	hasher.hash_password_into(password.as_bytes(), id.as_bytes(), &mut hash)?;
-	Ok(hash)
-}
+		let response = app
+			.post("/auth/login")
+			.json(&json!({
+				"email": "john@smith.com",
+				"password": "hunter2hunter",
+			}))
+			.await;
 
-/// Get authenticated user
-/// Returns the authenticated user.
-#[route(tag = tag::AUTH)]
-async fn me(session: Session) -> impl IntoApiResponse {
-	Json(session.user)
-}
+		assert_eq!(response.status_code(), 200);
 
-/// Log in
-/// Logs in to an account, returning an associated session cookie.
-#[route(tag = tag::AUTH, response(status = 200, description = "Logged in successfully"))]
-async fn login(
-	State(state): State<AppState>,
-	Json(auth): Json<LoginInput>,
-) -> Result<impl IntoApiResponse, RouteError> {
-	let user = sqlx::query_as!(
-		model::User,
-		r#"SELECT * FROM "user" WHERE email = $1"#,
-		auth.email
-	)
-	.fetch_one(&state.database)
-	.await;
+		assert!(response
+			.header("set-cookie")
+			.to_str()
+			.unwrap()
+			.contains("session="));
 
-	let Ok(user) = user else {
-		return Err(Error::InvalidUsernameOrPassword.into());
-	};
+		let response = app.get("/auth/me").await;
 
-	let hashed = hash_password(&state.hasher, &auth.password, &user.id).map_err(Error::Argon)?;
+		assert_eq!(response.status_code(), 200);
 
-	if user.password != hashed {
-		return Err(Error::InvalidUsernameOrPassword.into());
+		assert_eq!(response.json::<serde_json::Value>()["username"], "john");
 	}
-
-	let session_id = sqlx::query_scalar!(
-		"INSERT INTO session (user_id) VALUES ($1) RETURNING id",
-		user.id
-	)
-	.fetch_one(&state.database)
-	.await?;
-
-	let cookie = session::create_cookie(session_id);
-
-	Ok(NoApi([(header::SET_COOKIE, cookie.to_string())]))
-}
-
-/// Log out
-/// Logs out of the authenticated account. If authenticated with an API key, it will be invalidated.
-#[route(tag = tag::AUTH, response(status = 204, description = "Logged out successfully"))]
-async fn logout(
-	State(database): State<Database>,
-	session: Session,
-) -> Result<impl IntoApiResponse, RouteError> {
-	match session.id {
-		SessionOrApiKey::Session(id) => {
-			sqlx::query!("DELETE FROM session WHERE id = $1", id)
-				.execute(&database)
-				.await?;
-		}
-		SessionOrApiKey::ApiKey(id) => {
-			sqlx::query!("DELETE FROM api_keys WHERE id = $1", id)
-				.execute(&database)
-				.await?;
-		}
-	}
-
-	// Clear the session cookie
-	Ok((
-		[(header::SET_COOKIE, session::clear_cookie().to_string())],
-		StatusCode::NO_CONTENT,
-	))
-}
-
-/// Register account
-/// Registers a new account, returning an associated session cookie.
-#[route(tag = tag::AUTH, response(status = 200, description = "Registered successfully"))]
-async fn register(
-	State(state): State<AppState>,
-	Json(auth): Json<RegisterInput>,
-) -> Result<impl IntoApiResponse, RouteError> {
-	let user_id = Uuid::new_v4();
-	let hashed = hash_password(&state.hasher, &auth.password, &user_id).map_err(Error::Argon)?;
-
-	let mut tx = state.database.begin().await?;
-
-	sqlx::query_scalar!(
-		r#"
-			INSERT INTO "user" (id, email, username, password) VALUES ($1, $2, $3, $4) RETURNING id
-		"#,
-		user_id,
-		auth.email,
-		auth.username,
-		&hashed
-	)
-	.fetch_one(&mut *tx)
-	.await
-	.map_err(|e| match e {
-		sqlx::Error::Database(ref d) => match d.constraint() {
-			Some("user_email_key") => Error::EmailTaken.into(),
-			Some("user_username_key") => Error::UsernameTaken.into(),
-			_ => RouteError::from(e),
-		},
-		e => RouteError::from(e),
-	})?;
-
-	let session_id = sqlx::query_scalar!(
-		r#"
-			INSERT INTO session (user_id) VALUES ($1) RETURNING id
-		"#,
-		user_id
-	)
-	.fetch_one(&mut *tx)
-	.await?;
-
-	tx.commit().await?;
-
-	let cookie = session::create_cookie(session_id);
-
-	Ok(NoApi([(header::SET_COOKIE, cookie.to_string())]))
 }

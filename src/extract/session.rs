@@ -1,105 +1,16 @@
 use std::str::FromStr;
 
-use aide::{openapi, operation, OperationInput, OperationIo};
+use aide::{openapi, operation, OperationInput};
 use axum::{
-	body::Body,
-	extract::{FromRef, FromRequest, FromRequestParts, Request},
-	http::{header, request, Response},
-	response::IntoResponse,
+	extract::{FromRef, FromRequestParts},
+	http::{header, request},
 };
-use schemars::JsonSchema;
-use serde::de;
+
 use uuid::Uuid;
 
-use crate::{
-	error::{AppError, RouteError},
-	model,
-	route::auth,
-	session, Database,
-};
+use crate::{error::RouteError, route::auth, session, Database};
 
-/// Extractor that deserializes a JSON body and validates it.
-///
-/// T must implement [`serde::de::DeserializeOwned`] and [`validator::Validate`]
-/// in order to be used in an extractor.
-///
-/// ```rust
-/// async fn route(Json(user): Json<User>) {
-///   // ...
-/// }
-/// ```
-#[derive(OperationIo)]
-#[aide(
-	input_with = "axum_jsonschema::Json<T>",
-	output_with = "axum_jsonschema::Json<T>",
-	json_schema
-)]
-pub struct Json<T>(pub T);
-
-impl<T> IntoResponse for Json<T>
-where
-	T: serde::Serialize,
-{
-	fn into_response(self) -> Response<Body> {
-		axum::extract::Json(self.0).into_response()
-	}
-}
-
-#[axum::async_trait]
-impl<T, S> FromRequest<S> for Json<T>
-where
-	T: de::DeserializeOwned + validator::Validate + JsonSchema + 'static,
-	S: Send + Sync,
-{
-	type Rejection = AppError;
-
-	async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-		let result = axum_jsonschema::Json::<T>::from_request(req, state)
-			.await?
-			.0;
-
-		result.validate().map_err(Self::Rejection::Validation)?;
-		Ok(Self(result))
-	}
-}
-
-/// Extractor that deserializes a query string and validates it.
-///
-/// This is similar to [`Json<T>`], but does not consume the body.
-///
-/// ```rust
-/// async fn route(Query(params): Query<Params>) {
-///   // ...
-/// }
-/// ```
-#[derive(OperationIo)]
-#[aide(
-	input_with = "axum::extract::Query<T>",
-	output_with = "axum_jsonschema::Json<T>",
-	json_schema
-)]
-pub struct Query<T>(pub T);
-
-#[axum::async_trait]
-impl<T, S> FromRequestParts<S> for Query<T>
-where
-	T: de::DeserializeOwned + validator::Validate,
-	S: Send + Sync,
-{
-	type Rejection = AppError;
-
-	async fn from_request_parts(
-		parts: &mut request::Parts,
-		state: &S,
-	) -> Result<Self, Self::Rejection> {
-		let result = axum::extract::Query::<T>::from_request_parts(parts, state)
-			.await?
-			.0;
-
-		result.validate().map_err(Self::Rejection::Validation)?;
-		Ok(Self(result))
-	}
-}
+pub const AUTHORIZATION_PREFIX: &str = "Bearer ";
 
 /// A session or API key.
 ///
@@ -111,6 +22,7 @@ where
 #[derive(Debug)]
 pub enum SessionOrApiKey {
 	Session(Uuid),
+	#[allow(dead_code)]
 	ApiKey(Uuid),
 }
 
@@ -127,7 +39,7 @@ pub enum SessionOrApiKey {
 #[derive(Debug)]
 pub struct Session {
 	pub id: SessionOrApiKey,
-	pub user: model::User,
+	pub user: auth::model::User,
 }
 
 #[axum::async_trait]
@@ -143,15 +55,21 @@ where
 		parts: &mut request::Parts,
 		state: &S,
 	) -> Result<Self, Self::Rejection> {
-		let api_key = parts.headers.get(session::X_API_KEY);
+		let api_key = parts.headers.get(header::AUTHORIZATION);
 
 		Ok(if let Some(api_key) = api_key {
-			let api_key = Uuid::from_str(api_key.to_str().map_err(|_| auth::Error::InvalidApiKey)?)
+			let slice = api_key.to_str().map_err(|_| auth::Error::InvalidApiKey)?;
+
+			if !slice.starts_with(AUTHORIZATION_PREFIX) {
+				return Err(auth::Error::InvalidApiKey.into());
+			}
+
+			let api_key = Uuid::from_str(&slice[AUTHORIZATION_PREFIX.len()..])
 				.map_err(|_| auth::Error::InvalidApiKey)?;
 
 			let database = Database::from_ref(state);
 			let user = sqlx::query_as!(
-				model::User,
+				auth::model::User,
 				r#"
 				SELECT * FROM "user" WHERE id IN (
 					SELECT user_id FROM api_keys WHERE id = $1
@@ -186,7 +104,7 @@ where
 
 			let database = Database::from_ref(state);
 			let user = sqlx::query_as!(
-				model::User,
+				auth::model::User,
 				r#"
 				SELECT * FROM "user" WHERE id = (
 					SELECT user_id FROM session WHERE id = $1

@@ -16,6 +16,11 @@ chrono = { version = "0.4", features = ["serde"] }
 cookie = "0.18"
 dotenvy = "0.15"
 governor = "0.6"
+opentelemetry = { version = "0.22", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.15", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.22", features = ["rt-tokio", "trace"] }
+opentelemetry-semantic-conventions = "0.15"
+opentelemetry-stdout = { version = "0.3", features = ["trace", "metrics"] }
 schemars = { version = "0.8", features = ["chrono", "uuid1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,12 +31,11 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["compression-full", "cors", "normalize-path", "request-id", "trace", "util"] }
 tower_governor = "0.4"
 tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+tracing-opentelemetry = "0.23"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std", "fmt", "ansi"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 validator = { version = "0.18", features = ["derive"] }
-tracing-opentelemetry = "0.23"
-opentelemetry_sdk = { version = "0.22", features = ["rt-tokio", "trace"] }
-opentelemetry = { version = "0.22", features = ["trace", "metrics"] }
-opentelemetry-semantic-conventions = "0.15"
-opentelemetry-otlp = { version = "0.15", features = ["metrics"] }
-opentelemetry-stdout = { version = "0.3", features = ["trace", "metrics"] }
+
+[dev-dependencies]
+axum-test = "14"
+
