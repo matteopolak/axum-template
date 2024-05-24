@@ -1,8 +1,5 @@
-use std::borrow::Cow;
-
 use aide::axum::{routing::get_with, ApiRouter};
 use axum::http::StatusCode;
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::{error, AppState};
@@ -11,8 +8,9 @@ pub mod model;
 pub mod route;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
-	#[error("unknown key {0}")]
+	#[error("key_not_found")]
 	UnknownKey(Uuid),
 }
 
@@ -39,17 +37,14 @@ impl error::ErrorShape for Error {
 		}
 	}
 
-	fn errors(&self) -> Vec<error::Message<'_>> {
-		match self {
-			Self::UnknownKey(key) => vec![error::Message {
-				content: "unknown_key".into(),
-				field: None,
-				details: Some(Cow::Owned({
-					let mut map = error::Map::new();
-					map.insert("key".into(), json!(key));
-					map
-				})),
-			}],
-		}
+	fn into_errors(self) -> Vec<error::Message<'static>> {
+		let message = match self {
+			Self::UnknownKey(..) => "The key you provided does not exist.",
+		};
+
+		let message = error::Message::new(self.to_string()).message(message);
+		let Self::UnknownKey(key) = self;
+
+		vec![message.detail("key", key.to_string())]
 	}
 }

@@ -1,8 +1,5 @@
-use std::borrow::Cow;
-
 use aide::axum::{routing::get_with, ApiRouter};
 use axum::http::StatusCode;
-use serde_json::json;
 use uuid::Uuid;
 
 use crate::{error, AppState};
@@ -12,7 +9,7 @@ pub mod route;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-	#[error("unknown post {0}")]
+	#[error("post_not_found")]
 	UnknownPost(Uuid),
 }
 
@@ -42,17 +39,14 @@ impl error::ErrorShape for Error {
 		}
 	}
 
-	fn errors(&self) -> Vec<error::Message<'_>> {
-		match self {
-			Self::UnknownPost(post) => vec![error::Message {
-				content: "unknown_post".into(),
-				field: None,
-				details: Some(Cow::Owned({
-					let mut map = error::Map::new();
-					map.insert("post".into(), json!(post));
-					map
-				})),
-			}],
-		}
+	fn into_errors(self) -> Vec<error::Message<'static>> {
+		let message = match self {
+			Self::UnknownPost(..) => "The post you provided does not exist.",
+		};
+
+		let message = error::Message::new(self.to_string()).message(message);
+		let Self::UnknownPost(key) = self;
+
+		vec![message.detail("key", key.to_string())]
 	}
 }

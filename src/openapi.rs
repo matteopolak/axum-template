@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 #[cfg(not(test))]
 use std::sync::Arc;
 
@@ -43,7 +42,7 @@ pub fn routes() -> ApiRouter {
 pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 	api.title("Axum Example Open API")
 		.summary("An example Axum application")
-		.description(include_str!("../README.md"))
+		.description(include_str!("../docs/README.md"))
 		.tag(Tag {
 			name: tag::AUTH.into(),
 			description: Some("User authentication".into()),
@@ -78,14 +77,8 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 			},
 		)
 		.default_response_with::<Json<Vec<error::Message>>, _>(|res| {
-			res.example(vec![error::Message {
-				content: "error message".into(),
-				field: Some("optional field".into()),
-				details: Some(Cow::Owned({
-					let mut map = error::Map::new();
-					map.insert("key".into(), serde_json::json!("value"));
-					map
-				})),
-			}])
+			res.example(vec![error::Message::new("error_code")
+				.message("An optional human-readable error message.")
+				.detail("key", "value")])
 		})
 }

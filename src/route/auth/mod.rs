@@ -15,21 +15,21 @@ pub mod route;
 /// sensitive information.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-	#[error("invalid username or password")]
+	#[error("invalid_username_or_password")]
 	InvalidUsernameOrPassword,
-	#[error("password validation error")]
+	#[error("password_hash_error")]
 	Argon(#[from] argon2::Error),
-	#[error("cookie error: {0}")]
+	#[error("cookie_parse_error")]
 	Cookie(#[from] cookie::ParseError),
-	#[error("no session cookie or api key")]
+	#[error("authentication_required")]
 	NoSessionCookieOrApiKey,
-	#[error("invalid session cookie")]
+	#[error("invalid_session")]
 	InvalidSessionCookie,
-	#[error("invalid api key")]
+	#[error("invalid_api_key")]
 	InvalidApiKey,
-	#[error("username already taken")]
+	#[error("username_taken")]
 	UsernameTaken,
-	#[error("email already taken")]
+	#[error("email_taken")]
 	EmailTaken,
 }
 
@@ -62,12 +62,21 @@ impl error::ErrorShape for Error {
 		}
 	}
 
-	fn errors(&self) -> Vec<error::Message<'_>> {
-		vec![error::Message {
-			content: self.to_string().into(),
-			field: None,
-			details: None,
-		}]
+	fn into_errors(self) -> Vec<error::Message<'static>> {
+		use Error::*;
+
+		let message = match self {
+			InvalidUsernameOrPassword => "An invalid username or password was provided.",
+			Argon(..) => "An error occurred while hashing the password.",
+			Cookie(..) => "An error occurred while parsing the cookie.",
+			NoSessionCookieOrApiKey => "An authentication cookie or API key is required.",
+			InvalidSessionCookie => "The provided session cookie is invalid.",
+			InvalidApiKey => "The provided API key is invalid.",
+			UsernameTaken => "The provided username is already taken.",
+			EmailTaken => "The provided email is already taken.",
+		};
+
+		vec![error::Message::new(self.to_string()).message(message)]
 	}
 }
 

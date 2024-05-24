@@ -1,11 +1,11 @@
 #![allow(clippy::module_name_repetitions)]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, error::Error};
 
 use aide::OperationOutput;
 use axum::{
 	body::Body,
-	extract::rejection,
+	extract::rejection::{self, JsonRejection, QueryRejection},
 	http::{HeaderMap, Response, StatusCode},
 	response::IntoResponse,
 	Json,
@@ -14,12 +14,13 @@ use axum_jsonschema::JsonSchemaRejection;
 use schemars::JsonSchema;
 use serde::Serialize;
 use tower_governor::GovernorError;
+use validator::{ValidationErrors, ValidationErrorsKind};
 
 pub use std::collections::HashMap as Map;
 
 pub trait ErrorShape: Sized {
 	/// Returns a list of error messages to be sent to the client.
-	fn errors(&self) -> Vec<Message<'_>>;
+	fn into_errors(self) -> Vec<Message<'static>>;
 	/// Returns the HTTP status code associated with the error.
 	fn status(&self) -> StatusCode;
 	/// Returns additional headers to be sent to the client.
@@ -31,11 +32,13 @@ pub trait ErrorShape: Sized {
 	/// Transforms the error into a response. Unless you need to
 	/// customize the response, you should not override this method.
 	fn into_response(self) -> Response<Body> {
-		let mut response = Json(self.errors()).into_response();
+		let status = self.status();
+		let headers = self.headers();
+		let mut response = Json(self.into_errors()).into_response();
 
-		*response.status_mut() = self.status();
+		*response.status_mut() = status;
 
-		if let Some(headers) = self.headers() {
+		if let Some(headers) = headers {
 			*response.headers_mut() = headers;
 		}
 
@@ -68,25 +71,11 @@ impl From<axum_jsonschema::JsonSchemaRejection> for AppError {
 	}
 }
 
-macro_rules! impl_from_error {
-	($($error:ty),*) => {
-		$(
-			impl<E> From<$error> for RouteError<E> {
-				fn from(error: $error) -> Self {
-					Self::App(error.into())
-				}
-			}
-		)*
-	};
+impl<E> From<sqlx::Error> for RouteError<E> {
+	fn from(error: sqlx::Error) -> Self {
+		Self::App(error.into())
+	}
 }
-
-impl_from_error!(
-	validator::ValidationErrors,
-	axum_jsonschema::JsonSchemaRejection,
-	rejection::QueryRejection,
-	sqlx::Error,
-	tower_governor::GovernorError
-);
 
 impl IntoResponse for AppError {
 	fn into_response(self) -> Response<Body> {
@@ -94,16 +83,120 @@ impl IntoResponse for AppError {
 	}
 }
 
+impl ErrorShape for ValidationErrors {
+	fn status(&self) -> StatusCode {
+		StatusCode::BAD_REQUEST
+	}
+
+	fn into_errors(self) -> Vec<Message<'static>> {
+		self.into_errors()
+			.into_iter()
+			.filter_map(|(k, v)| {
+				if let ValidationErrorsKind::Field(errors) = v {
+					Some((k, errors))
+				} else {
+					None
+				}
+			})
+			.flat_map(move |(field, errors)| {
+				errors.into_iter().map(move |mut error| Message {
+					code: error.code,
+					message: error.message,
+					details: Some(Cow::Owned({
+						error.params.insert("field".into(), field.into());
+						error.params
+					})),
+				})
+			})
+			.collect()
+	}
+}
+
+impl ErrorShape for JsonSchemaRejection {
+	fn status(&self) -> StatusCode {
+		StatusCode::BAD_REQUEST
+	}
+
+	fn into_errors(self) -> Vec<Message<'static>> {
+		match self {
+			Self::Json(error) => match error {
+				JsonRejection::JsonDataError(error) => {
+					vec![Message::new("json_deserialize_error").message(error.to_string())]
+				}
+				JsonRejection::BytesRejection(error) => {
+					vec![Message::new("unacceptable_json_payload").message(error.to_string())]
+				}
+				JsonRejection::JsonSyntaxError(error) => {
+					vec![Message::new("json_syntax_error").message(error.to_string())]
+				}
+				JsonRejection::MissingJsonContentType(..) => {
+					vec![Message::new("missing_json_content_type")
+						.message("Missing JSON content type.")]
+				}
+				_ => vec![Message::new("unknown_json_error").message("Unknown JSON error.")],
+			},
+			Self::Serde(error) => {
+				vec![Message::new("json_deserialize_error")
+					.detail("field", error.path().to_string())]
+			}
+			Self::Schema(error) => error
+				.into_iter()
+				// TODO: remove this allocation! https://github.com/Stranger6667/jsonschema-rs/issues/488
+				.map(|v| {
+					Message::new("json_validation_error").message(v.error_description().to_string())
+				})
+				.collect(),
+		}
+	}
+}
+
+impl ErrorShape for GovernorError {
+	fn status(&self) -> StatusCode {
+		match self {
+			Self::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
+			Self::UnableToExtractKey => StatusCode::INTERNAL_SERVER_ERROR,
+			Self::Other { code, .. } => *code,
+		}
+	}
+
+	fn into_errors(self) -> Vec<Message<'static>> {
+		match self {
+			Self::TooManyRequests { .. } => {
+				vec![Message::new("too_many_requests").message("You are sending too many requests.")]
+			}
+			Self::UnableToExtractKey => {
+				vec![Message::new("internal_error").message("Unable to extract key.")]
+			}
+			Self::Other { msg, .. } => msg.map_or_else(Vec::new, |msg| {
+				vec![Message::new("internal_error").message(msg)]
+			}),
+		}
+	}
+}
+
+impl ErrorShape for QueryRejection {
+	fn status(&self) -> StatusCode {
+		StatusCode::BAD_REQUEST
+	}
+
+	fn into_errors(self) -> Vec<Message<'static>> {
+		match self {
+			Self::FailedToDeserializeQueryString(error) => {
+				vec![Message::new("query_deserialize_error").message(error.to_string())]
+			}
+			_ => vec![Message::new("unknown_query_error").message("Unknown query error.")],
+		}
+	}
+}
+
 impl ErrorShape for AppError {
 	fn status(&self) -> StatusCode {
 		match self {
-			Self::Validation(..) | Self::Json(..) | Self::Query(..) => StatusCode::BAD_REQUEST,
+			Self::Validation(errors) => errors.status(),
+			Self::Json(error) => error.status(),
+			Self::Query(..) => StatusCode::BAD_REQUEST,
 			Self::Database(..) => StatusCode::INTERNAL_SERVER_ERROR,
-			Self::Governor(error) => match error {
-				GovernorError::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
-				GovernorError::UnableToExtractKey => StatusCode::INTERNAL_SERVER_ERROR,
-				GovernorError::Other { code, .. } => *code,
-			},
+			Self::Governor(error) => error.status(),
 		}
 	}
 
@@ -117,49 +210,12 @@ impl ErrorShape for AppError {
 		}
 	}
 
-	fn errors(&self) -> Vec<Message<'_>> {
+	fn into_errors(self) -> Vec<Message<'static>> {
 		match self {
-			Self::Validation(errors) => errors
-				.field_errors()
-				.into_iter()
-				.flat_map(move |(field, errors)| {
-					errors.iter().map(move |error| Message {
-						content: error.code.as_ref().into(),
-						field: Some(field.into()),
-						details: Some(Cow::Borrowed(&error.params)),
-					})
-				})
-				.collect(),
-			Self::Json(error) => match error {
-				JsonSchemaRejection::Json(error) => vec![Message::new(error.to_string().into())],
-				JsonSchemaRejection::Serde(error) => vec![Message::new(error.to_string().into())],
-				JsonSchemaRejection::Schema(error) => error
-					.iter()
-					.map(|v| Message {
-						content: v.error_description().to_string().into(),
-						field: Some(v.instance_location().to_string().into()),
-						details: None,
-					})
-					.collect(),
-			},
-			Self::Query(error) => vec![Message::new(error.to_string().into())],
-			Self::Governor(error) => match error {
-				GovernorError::TooManyRequests { .. } => vec![Message {
-					content: "too many requests".into(),
-					field: None,
-					details: None,
-				}],
-				GovernorError::UnableToExtractKey => {
-					vec![Message::new("unable to extract key".into())]
-				}
-				GovernorError::Other { msg, .. } => msg.as_ref().map_or_else(Vec::new, |msg| {
-					vec![Message {
-						content: Cow::Borrowed(msg),
-						field: None,
-						details: None,
-					}]
-				}),
-			},
+			Self::Validation(errors) => ErrorShape::into_errors(errors),
+			Self::Json(error) => error.into_errors(),
+			Self::Query(error) => vec![Message::new(error.to_string())],
+			Self::Governor(error) => error.into_errors(),
 			Self::Database(..) => Vec::new(),
 		}
 	}
@@ -205,11 +261,12 @@ where
 impl<E> ErrorShape for RouteError<E>
 where
 	E: ErrorShape,
+	RouteError<E>: Error,
 {
-	fn errors(&self) -> Vec<Message<'_>> {
+	fn into_errors(self) -> Vec<Message<'static>> {
 		match self {
-			Self::App(error) => error.errors(),
-			Self::Route(error) => error.errors(),
+			Self::App(error) => error.into_errors(),
+			Self::Route(error) => error.into_errors(),
 		}
 	}
 
@@ -228,19 +285,37 @@ where
 /// requirements).
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Message<'e> {
-	pub content: Cow<'e, str>,
+	pub code: Cow<'e, str>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub field: Option<Cow<'e, str>>,
+	pub message: Option<Cow<'e, str>>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub details: Option<Cow<'e, Map<Cow<'e, str>, serde_json::Value>>>,
 }
 
 impl<'e> Message<'e> {
-	pub fn new(content: Cow<'e, str>) -> Self {
+	pub fn new(code: impl Into<Cow<'e, str>>) -> Self {
 		Self {
-			content,
-			field: None,
+			code: code.into(),
+			message: None,
 			details: None,
 		}
+	}
+
+	pub fn detail(
+		mut self,
+		key: impl Into<Cow<'e, str>>,
+		value: impl Into<serde_json::Value>,
+	) -> Self {
+		self.details
+			.get_or_insert_with(Cow::default)
+			.to_mut()
+			.insert(key.into(), value.into());
+
+		self
+	}
+
+	pub fn message(mut self, message: impl Into<Cow<'e, str>>) -> Self {
+		self.message = Some(message.into());
+		self
 	}
 }
