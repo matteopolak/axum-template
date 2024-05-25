@@ -6,6 +6,11 @@ name = "axum-template"
 version = "0.1.0"
 edition = "2021"
 
+[scalar]
+theme = "default"
+spec_url = "/docs/private/api.json"
+title = "Axum Template"
+
 [dependencies]
 macros = { path = "macros" }
 aide = { version = "0.13", features = ["axum", "macros"] }
@@ -41,4 +46,6 @@ axum-test = "14"
 
 [build-dependencies]
 ureq = "2"
+toml = "0.8"
+serde = "1"
 

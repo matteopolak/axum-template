@@ -2,18 +2,35 @@ use std::path::PathBuf;
 
 const SCALAR_MIN_JS: &str = "https://cdn.jsdelivr.net/npm/@scalar/api-reference";
 
+fn default_theme() -> String {
+	"default".into()
+}
+
+fn default_spec_url() -> String {
+	"/docs/private/api.json".into()
+}
+
+#[derive(serde::Deserialize)]
+struct Config {
+	scalar: Scalar,
+}
+
+#[derive(serde::Deserialize)]
+struct Scalar {
+	#[serde(default = "default_theme")]
+	theme: String,
+	#[serde(default = "default_spec_url")]
+	spec_url: String,
+	title: String,
+}
+
 // Example custom build script.
 fn main() {
-	println!("cargo:rerun-if-env-changed=SCALAR_THEME");
-	println!("cargo:rerun-if-env-changed=SCALAR_SPEC_URL");
-	println!("cargo:rerun-if-env-changed=SCALAR_TITLE");
+	println!("cargo:rerun-if-changed=Cargo.toml");
 
-	let theme = std::env::var("SCALAR_THEME").unwrap_or_else(|_| "default".into());
-	let spec_url =
-		std::env::var("SCALAR_SPEC_URL").unwrap_or_else(|_| "/docs/private/api.json".into());
-	let title = std::env::var("SCALAR_TITLE")
-		.or_else(|_| std::env::var("CARGO_PKG_NAME"))
-		.unwrap();
+	// read from Cargo.toml
+	let config = std::fs::read_to_string("Cargo.toml").unwrap();
+	let config = toml::from_str::<Config>(&config).unwrap();
 
 	let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
 
@@ -56,7 +73,10 @@ fn main() {
 					{js}
 				</script>
 			</body>
-		</html>"#
+		</html>"#,
+		title = config.scalar.title,
+		theme = config.scalar.theme,
+		spec_url = config.scalar.spec_url,
 	);
 
 	std::fs::write(out.join("scalar.html"), html).unwrap();
