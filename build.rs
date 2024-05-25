@@ -12,6 +12,16 @@ fn default_spec_url() -> String {
 
 #[derive(serde::Deserialize)]
 struct Config {
+	package: Package,
+}
+
+#[derive(serde::Deserialize)]
+struct Package {
+	metadata: Metadata,
+}
+
+#[derive(serde::Deserialize)]
+struct Metadata {
 	scalar: Scalar,
 }
 
@@ -74,9 +84,9 @@ fn main() {
 				</script>
 			</body>
 		</html>"#,
-		title = config.scalar.title,
-		theme = config.scalar.theme,
-		spec_url = config.scalar.spec_url,
+		title = config.package.metadata.scalar.title,
+		theme = config.package.metadata.scalar.theme,
+		spec_url = config.package.metadata.scalar.spec_url,
 	);
 
 	std::fs::write(out.join("scalar.html"), html).unwrap();

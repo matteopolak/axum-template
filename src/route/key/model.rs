@@ -1,4 +1,4 @@
-pub use crate::route::model::PaginateInput;
+pub use crate::route::model::{IdInput, PaginateInput};
 
 use schemars::JsonSchema;
 use serde::Serialize;

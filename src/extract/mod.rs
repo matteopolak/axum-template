@@ -96,3 +96,33 @@ where
 		Ok(Self(result))
 	}
 }
+
+/// Extractor that deserializes a path parameter and validates it.
+#[derive(OperationIo)]
+#[aide(
+	input_with = "axum::extract::Path<T>",
+	output_with = "axum_jsonschema::Json<T>",
+	json_schema
+)]
+pub struct Path<T>(pub T);
+
+#[axum::async_trait]
+impl<T, S> FromRequestParts<S> for Path<T>
+where
+	T: de::DeserializeOwned + validator::Validate + Send,
+	S: Send + Sync,
+{
+	type Rejection = AppError;
+
+	async fn from_request_parts(
+		parts: &mut request::Parts,
+		state: &S,
+	) -> Result<Self, Self::Rejection> {
+		let result = axum::extract::Path::<T>::from_request_parts(parts, state)
+			.await?
+			.0;
+
+		result.validate().map_err(Self::Rejection::Validation)?;
+		Ok(Self(result))
+	}
+}

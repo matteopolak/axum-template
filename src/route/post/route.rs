@@ -1,9 +1,8 @@
-use axum::extract::{Path, State};
+use axum::extract::State;
 use macros::route;
-use uuid::Uuid;
 
 use crate::{
-	extract::{Json, Query, Session},
+	extract::{Json, Path, Query, Session},
 	openapi::tag,
 	Database,
 };
@@ -64,7 +63,7 @@ pub async fn get_posts(
 #[route(tag = tag::POST)]
 pub async fn get_post(
 	State(database): State<Database>,
-	Path(post_id): Path<Uuid>,
+	Path(path): Path<model::IdInput>,
 ) -> Result<Json<model::Post>, RouteError> {
 	let post = sqlx::query_as!(
 		model::Post,
@@ -72,12 +71,12 @@ pub async fn get_post(
 			SELECT * FROM post
 			WHERE id = $1
 		"#,
-		post_id,
+		path.id,
 	)
 	.fetch_optional(&database)
 	.await?;
 
-	Ok(Json(post.ok_or(Error::UnknownPost(post_id))?))
+	Ok(Json(post.ok_or(Error::UnknownPost(path.id))?))
 }
 
 /// Create post
@@ -111,7 +110,7 @@ pub async fn create_post(
 pub async fn update_post(
 	State(database): State<Database>,
 	session: Session,
-	Path(post_id): Path<Uuid>,
+	Path(path): Path<model::IdInput>,
 	Json(input): Json<model::UpdatePostInput>,
 ) -> Result<Json<model::Post>, RouteError> {
 	let post = sqlx::query_as!(
@@ -124,13 +123,13 @@ pub async fn update_post(
 		"#,
 		input.title,
 		input.content,
-		post_id,
+		path.id,
 		session.user.id,
 	)
 	.fetch_optional(&database)
 	.await?;
 
-	Ok(Json(post.ok_or(Error::UnknownPost(post_id))?))
+	Ok(Json(post.ok_or(Error::UnknownPost(path.id))?))
 }
 
 /// Delete post
@@ -139,21 +138,21 @@ pub async fn update_post(
 pub async fn delete_post(
 	State(database): State<Database>,
 	session: Session,
-	Path(post_id): Path<Uuid>,
+	Path(path): Path<model::IdInput>,
 ) -> Result<(), RouteError> {
 	let post = sqlx::query!(
 		r#"
 			DELETE FROM post
 			WHERE id = $1 AND user_id = $2
 		"#,
-		post_id,
+		path.id,
 		session.user.id,
 	)
 	.execute(&database)
 	.await?;
 
 	if post.rows_affected() == 0 {
-		return Err(Error::UnknownPost(post_id).into());
+		return Err(Error::UnknownPost(path.id).into());
 	}
 
 	Ok(())

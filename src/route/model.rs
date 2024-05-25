@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
+use uuid::Uuid;
 use validator::Validate;
 
 /// These can be removed when [`serde`] supports
@@ -32,4 +33,9 @@ impl PaginateInput {
 	pub fn limit(&self) -> i64 {
 		self.size
 	}
+}
+
+#[derive(Deserialize, Validate, JsonSchema)]
+pub struct IdInput {
+	pub id: Uuid,
 }

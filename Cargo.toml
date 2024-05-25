@@ -6,7 +6,7 @@ name = "axum-template"
 version = "0.1.0"
 edition = "2021"
 
-[scalar]
+[package.metadata.scalar]
 theme = "default"
 spec_url = "/docs/private/api.json"
 title = "Axum Template"

@@ -1,9 +1,8 @@
-use axum::extract::{Path, State};
+use axum::extract::State;
 use macros::route;
-use uuid::Uuid;
 
 use crate::{
-	extract::{Json, Query, Session},
+	extract::{Json, Path, Query, Session},
 	openapi::tag,
 	AppState,
 };
@@ -62,20 +61,20 @@ pub async fn create_key(
 pub async fn get_key(
 	State(state): State<AppState>,
 	session: Session,
-	Path(key_id): Path<Uuid>,
+	Path(path): Path<model::IdInput>,
 ) -> Result<Json<model::Key>, RouteError> {
 	let key = sqlx::query_as!(
 		model::Key,
 		r#"
 			SELECT * FROM api_keys WHERE id = $1 AND user_id = $2
 		"#,
-		key_id,
+		path.id,
 		session.user.id,
 	)
 	.fetch_optional(&state.database)
 	.await?;
 
-	Ok(Json(key.ok_or(Error::UnknownKey(key_id))?))
+	Ok(Json(key.ok_or(Error::UnknownKey(path.id))?))
 }
 
 /// Delete API key
@@ -84,20 +83,20 @@ pub async fn get_key(
 pub async fn delete_key(
 	State(state): State<AppState>,
 	session: Session,
-	Path(key_id): Path<Uuid>,
+	Path(path): Path<model::IdInput>,
 ) -> Result<(), RouteError> {
 	let status = sqlx::query!(
 		r#"
 			DELETE FROM api_keys WHERE id = $1 AND user_id = $2
 		"#,
-		key_id,
+		path.id,
 		session.user.id
 	)
 	.execute(&state.database)
 	.await?;
 
 	if status.rows_affected() == 0 {
-		return Err(Error::UnknownKey(key_id).into());
+		return Err(Error::UnknownKey(path.id).into());
 	}
 
 	Ok(())

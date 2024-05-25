@@ -5,7 +5,7 @@ use std::{borrow::Cow, error::Error};
 use aide::OperationOutput;
 use axum::{
 	body::Body,
-	extract::rejection::{self, JsonRejection, QueryRejection},
+	extract::rejection::{self, JsonRejection, PathRejection, QueryRejection},
 	http::{HeaderMap, Response, StatusCode},
 	response::IntoResponse,
 	Json,
@@ -59,6 +59,8 @@ pub enum AppError {
 	Json(axum_jsonschema::JsonSchemaRejection),
 	#[error("query error: {0}")]
 	Query(#[from] rejection::QueryRejection),
+	#[error("path error: {0}")]
+	Path(#[from] rejection::PathRejection),
 	#[error("database error: {0}")]
 	Database(#[from] sqlx::Error),
 	#[error("governor error: {0}")]
@@ -189,12 +191,28 @@ impl ErrorShape for QueryRejection {
 	}
 }
 
+impl ErrorShape for PathRejection {
+	fn status(&self) -> StatusCode {
+		StatusCode::BAD_REQUEST
+	}
+
+	fn into_errors(self) -> Vec<Message<'static>> {
+		match self {
+			Self::FailedToDeserializePathParams(error) => {
+				Message::new("path_deserialize_error").content(error.to_string())
+			}
+			_ => Message::new("unknown_path_error").content("Unknown path error."),
+		}
+		.into_vec()
+	}
+}
+
 impl ErrorShape for AppError {
 	fn status(&self) -> StatusCode {
 		match self {
 			Self::Validation(errors) => errors.status(),
 			Self::Json(error) => error.status(),
-			Self::Query(..) => StatusCode::BAD_REQUEST,
+			Self::Query(..) | Self::Path(..) => StatusCode::BAD_REQUEST,
 			Self::Database(..) => StatusCode::INTERNAL_SERVER_ERROR,
 			Self::Governor(error) => error.status(),
 		}
@@ -214,9 +232,10 @@ impl ErrorShape for AppError {
 		match self {
 			Self::Validation(errors) => ErrorShape::into_errors(errors),
 			Self::Json(error) => error.into_errors(),
-			Self::Query(error) => vec![Message::new(error.to_string())],
+			Self::Query(error) => Message::new(error.to_string()).into_vec(),
 			Self::Governor(error) => error.into_errors(),
-			Self::Database(..) => Vec::new(),
+			Self::Database(..) => Message::new("internal_error").into_vec(),
+			Self::Path(error) => error.into_errors(),
 		}
 	}
 }
