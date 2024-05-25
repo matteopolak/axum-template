@@ -3,6 +3,7 @@
 #![allow(clippy::default_trait_access)]
 #![allow(clippy::wildcard_imports)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::enum_glob_use)]
 
 mod error;
 mod extract;

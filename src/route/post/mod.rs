@@ -44,9 +44,9 @@ impl error::ErrorShape for Error {
 			Self::UnknownPost(..) => "The post you provided does not exist.",
 		};
 
-		let message = error::Message::new(self.to_string()).message(message);
+		let message = error::Message::new(self.to_string()).content(message);
 		let Self::UnknownPost(key) = self;
 
-		vec![message.detail("key", key.to_string())]
+		message.detail("key", key.to_string()).into_vec()
 	}
 }

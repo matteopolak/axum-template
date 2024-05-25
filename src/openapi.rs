@@ -78,7 +78,7 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 		)
 		.default_response_with::<Json<Vec<error::Message>>, _>(|res| {
 			res.example(vec![error::Message::new("error_code")
-				.message("An optional human-readable error message.")
+				.content("An optional human-readable error message.")
 				.detail("key", "value")])
 		})
 }

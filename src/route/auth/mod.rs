@@ -76,7 +76,9 @@ impl error::ErrorShape for Error {
 			EmailTaken => "The provided email is already taken.",
 		};
 
-		vec![error::Message::new(self.to_string()).message(message)]
+		error::Message::new(self.to_string())
+			.content(message)
+			.into_vec()
 	}
 }
 

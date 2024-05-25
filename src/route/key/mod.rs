@@ -42,9 +42,9 @@ impl error::ErrorShape for Error {
 			Self::UnknownKey(..) => "The key you provided does not exist.",
 		};
 
-		let message = error::Message::new(self.to_string()).message(message);
+		let message = error::Message::new(self.to_string()).content(message);
 		let Self::UnknownKey(key) = self;
 
-		vec![message.detail("key", key.to_string())]
+		message.detail("key", key.to_string()).into_vec()
 	}
 }

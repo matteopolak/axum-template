@@ -101,7 +101,7 @@ impl ErrorShape for ValidationErrors {
 			.flat_map(move |(field, errors)| {
 				errors.into_iter().map(move |mut error| Message {
 					code: error.code,
-					message: error.message,
+					content: error.message,
 					details: Some(Cow::Owned({
 						error.params.insert("field".into(), field.into());
 						error.params
@@ -121,29 +121,28 @@ impl ErrorShape for JsonSchemaRejection {
 		match self {
 			Self::Json(error) => match error {
 				JsonRejection::JsonDataError(error) => {
-					vec![Message::new("json_deserialize_error").message(error.to_string())]
+					Message::new("json_deserialize_error").content(error.to_string())
 				}
 				JsonRejection::BytesRejection(error) => {
-					vec![Message::new("unacceptable_json_payload").message(error.to_string())]
+					Message::new("unacceptable_json_payload").content(error.to_string())
 				}
 				JsonRejection::JsonSyntaxError(error) => {
-					vec![Message::new("json_syntax_error").message(error.to_string())]
+					Message::new("json_syntax_error").content(error.to_string())
 				}
 				JsonRejection::MissingJsonContentType(..) => {
-					vec![Message::new("missing_json_content_type")
-						.message("Missing JSON content type.")]
+					Message::new("missing_json_content_type").content("Missing JSON content type.")
 				}
-				_ => vec![Message::new("unknown_json_error").message("Unknown JSON error.")],
-			},
-			Self::Serde(error) => {
-				vec![Message::new("json_deserialize_error")
-					.detail("field", error.path().to_string())]
+				_ => Message::new("unknown_json_error").content("Unknown JSON error."),
 			}
+			.into_vec(),
+			Self::Serde(error) => Message::new("json_deserialize_error")
+				.detail("field", error.path().to_string())
+				.into_vec(),
 			Self::Schema(error) => error
 				.into_iter()
 				// TODO: remove this allocation! https://github.com/Stranger6667/jsonschema-rs/issues/488
 				.map(|v| {
-					Message::new("json_validation_error").message(v.error_description().to_string())
+					Message::new("json_validation_error").content(v.error_description().to_string())
 				})
 				.collect(),
 		}
@@ -161,14 +160,14 @@ impl ErrorShape for GovernorError {
 
 	fn into_errors(self) -> Vec<Message<'static>> {
 		match self {
-			Self::TooManyRequests { .. } => {
-				vec![Message::new("too_many_requests").message("You are sending too many requests.")]
-			}
-			Self::UnableToExtractKey => {
-				vec![Message::new("internal_error").message("Unable to extract key.")]
-			}
+			Self::TooManyRequests { .. } => Message::new("too_many_requests")
+				.content("You are sending too many requests.")
+				.into_vec(),
+			Self::UnableToExtractKey => Message::new("internal_error")
+				.content("Unable to extract key.")
+				.into_vec(),
 			Self::Other { msg, .. } => msg.map_or_else(Vec::new, |msg| {
-				vec![Message::new("internal_error").message(msg)]
+				Message::new("internal_error").content(msg).into_vec()
 			}),
 		}
 	}
@@ -182,10 +181,11 @@ impl ErrorShape for QueryRejection {
 	fn into_errors(self) -> Vec<Message<'static>> {
 		match self {
 			Self::FailedToDeserializeQueryString(error) => {
-				vec![Message::new("query_deserialize_error").message(error.to_string())]
+				Message::new("query_deserialize_error").content(error.to_string())
 			}
-			_ => vec![Message::new("unknown_query_error").message("Unknown query error.")],
+			_ => Message::new("unknown_query_error").content("Unknown query error."),
 		}
+		.into_vec()
 	}
 }
 
@@ -286,8 +286,8 @@ where
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Message<'e> {
 	pub code: Cow<'e, str>,
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub message: Option<Cow<'e, str>>,
+	#[serde(skip_serializing_if = "Option::is_none", rename = "message")]
+	pub content: Option<Cow<'e, str>>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub details: Option<Cow<'e, Map<Cow<'e, str>, serde_json::Value>>>,
 }
@@ -296,7 +296,7 @@ impl<'e> Message<'e> {
 	pub fn new(code: impl Into<Cow<'e, str>>) -> Self {
 		Self {
 			code: code.into(),
-			message: None,
+			content: None,
 			details: None,
 		}
 	}
@@ -314,8 +314,12 @@ impl<'e> Message<'e> {
 		self
 	}
 
-	pub fn message(mut self, message: impl Into<Cow<'e, str>>) -> Self {
-		self.message = Some(message.into());
+	pub fn content(mut self, content: impl Into<Cow<'e, str>>) -> Self {
+		self.content = Some(content.into());
 		self
+	}
+
+	pub fn into_vec(self) -> Vec<Self> {
+		vec![self]
 	}
 }
