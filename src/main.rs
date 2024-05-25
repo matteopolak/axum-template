@@ -176,6 +176,11 @@ mod test {
 
 	use super::*;
 
+	/// Constructs a new router with the given database connection pool
+	/// with rate-limiting and documentation disabled.
+	///
+	/// It contains various utilities for testing the application, see
+	/// more at [`axum_test`].
 	pub fn app(database: Database) -> TestServer {
 		let config = TestServerConfig::builder().save_cookies().build();
 		let state = AppState {

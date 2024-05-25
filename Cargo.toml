@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 macros = { path = "macros" }
-aide = { version = "0.13", features = ["axum", "macros", "scalar"] }
+aide = { version = "0.13", features = ["axum", "macros"] }
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.7", features = ["macros"] }
 axum-jsonschema = { version = "0.8", features = ["aide"] }
@@ -38,4 +38,7 @@ validator = { version = "0.18", features = ["derive"] }
 
 [dev-dependencies]
 axum-test = "14"
+
+[build-dependencies]
+ureq = "2"
 

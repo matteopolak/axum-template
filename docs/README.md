@@ -7,7 +7,7 @@ Authentication to the API is supported by two mechanisms: API keys and session t
 API keys are used to authenticate automated requests on behalf of a user.
 They are passed in the `Authorization` header in the following format:
 
-```
+```http
 Authorization: Bearer <Key>
 ```
 
@@ -16,7 +16,7 @@ Authorization: Bearer <Key>
 Session tokens are used to authenticate users.
 They are passed as a cookie in the following format:
 
-```
+```http
 Cookie: session=<SessionId>
 ```
 

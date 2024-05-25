@@ -10,7 +10,6 @@ use aide::{
 use aide::{
 	axum::{routing::get, ApiRouter},
 	openapi::OpenApi,
-	scalar::Scalar,
 };
 
 #[cfg(not(test))]
@@ -26,12 +25,12 @@ pub mod tag {
 
 #[cfg(not(test))]
 pub fn routes() -> ApiRouter {
+	use axum::response::Html;
+
 	ApiRouter::new()
 		.api_route(
 			"/",
-			get(Scalar::new("/docs/private/api.json")
-				.with_title("Axum Template")
-				.axum_handler()),
+			get(|| async { Html(include_str!(concat!(env!("OUT_DIR"), "/scalar.html"))) }),
 		)
 		.route(
 			"/private/api.json",
