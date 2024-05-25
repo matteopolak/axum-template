@@ -278,16 +278,20 @@ where
 	}
 }
 
-/// Single error message shape.
-///
-/// Represents a single error message, often accompanied by
+/// A single error message, often accompanied by
 /// additional context (e.g. when a validation error displays
 /// requirements).
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Message<'e> {
+	/// An error code identifying the error. Note that, for some non-user-facing errors,
+	/// this may be identical for a class of error types (e.g. ``json_validation_error``).
 	pub code: Cow<'e, str>,
+	/// When present, this is a human-readable message describing the error
+	/// in more detail, often with some recommendations on how to fix it.
 	#[serde(skip_serializing_if = "Option::is_none", rename = "message")]
 	pub content: Option<Cow<'e, str>>,
+	/// Additional context for the error, such as the field that failed validation
+	/// or the key that was not found.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub details: Option<Cow<'e, Map<Cow<'e, str>, serde_json::Value>>>,
 }

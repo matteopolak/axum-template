@@ -58,7 +58,7 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 			..Default::default()
 		})
 		.security_scheme(
-			"API Key",
+			"APIKey",
 			SecurityScheme::Http {
 				scheme: "bearer".into(),
 				bearer_format: Some("UUID".into()),
