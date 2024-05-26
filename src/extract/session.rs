@@ -8,7 +8,12 @@ use axum::{
 
 use uuid::Uuid;
 
-use crate::{error::RouteError, route::auth, session, Database};
+use crate::{
+	error::RouteError,
+	openapi::{SECURITY_SCHEME_API_KEY, SECURITY_SCHEME_SESSION},
+	route::auth,
+	session, Database,
+};
 
 pub const AUTHORIZATION_PREFIX: &str = "Bearer ";
 
@@ -132,27 +137,13 @@ impl OperationInput for Session {
 	fn operation_input(ctx: &mut aide::gen::GenContext, operation: &mut aide::openapi::Operation) {
 		let s = ctx.schema.subschema_for::<Uuid>();
 
-		operation::add_parameters(
-			ctx,
-			operation,
-			[openapi::Parameter::Cookie {
-				parameter_data: openapi::ParameterData {
-					name: session::COOKIE_NAME.to_string(),
-					required: true,
-					description: Some("The session cookie for the current user.".to_string()),
-					format: openapi::ParameterSchemaOrContent::Schema(openapi::SchemaObject {
-						json_schema: s,
-						example: None,
-						external_docs: None,
-					}),
-					extensions: Default::default(),
-					deprecated: Some(false),
-					example: None,
-					examples: Default::default(),
-					explode: None,
-				},
-				style: openapi::CookieStyle::Form,
-			}],
-		);
+		operation.security.extend([
+			[(SECURITY_SCHEME_SESSION.to_string(), Vec::new())]
+				.into_iter()
+				.collect(),
+			[(SECURITY_SCHEME_API_KEY.to_string(), Vec::new())]
+				.into_iter()
+				.collect(),
+		]);
 	}
 }

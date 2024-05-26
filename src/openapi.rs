@@ -38,6 +38,9 @@ pub fn routes() -> ApiRouter {
 		)
 }
 
+pub const SECURITY_SCHEME_API_KEY: &str = "APIKey";
+pub const SECURITY_SCHEME_SESSION: &str = "Session";
+
 pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 	api.title("Axum Example Open API")
 		.summary("An example Axum application")
@@ -58,7 +61,7 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 			..Default::default()
 		})
 		.security_scheme(
-			"APIKey",
+			SECURITY_SCHEME_API_KEY,
 			SecurityScheme::Http {
 				scheme: "bearer".into(),
 				bearer_format: Some("UUID".into()),
@@ -67,7 +70,7 @@ pub fn docs(api: TransformOpenApi) -> TransformOpenApi {
 			},
 		)
 		.security_scheme(
-			"Session",
+			SECURITY_SCHEME_SESSION,
 			SecurityScheme::ApiKey {
 				location: ApiKeyLocation::Cookie,
 				name: session::COOKIE_NAME.into(),
