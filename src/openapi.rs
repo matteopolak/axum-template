@@ -1,19 +1,16 @@
-#[cfg(not(test))]
 use std::sync::Arc;
 
 use aide::{
+	axum::{routing::get, ApiRouter},
+	openapi::OpenApi,
 	openapi::{ApiKeyLocation, SecurityScheme, Tag},
 	transform::TransformOpenApi,
 };
 
-#[cfg(not(test))]
-use aide::{
-	axum::{routing::get, ApiRouter},
-	openapi::OpenApi,
+use axum::{
+	response::{Html, IntoResponse},
+	Extension,
 };
-
-#[cfg(not(test))]
-use axum::{response::IntoResponse, Extension};
 
 use crate::{error, extract::Json, session};
 
@@ -23,10 +20,7 @@ pub mod tag {
 	pub const KEY: &str = "Key";
 }
 
-#[cfg(not(test))]
 pub fn routes() -> ApiRouter {
-	use axum::response::Html;
-
 	ApiRouter::new()
 		.api_route(
 			"/",

@@ -7,13 +7,13 @@ CREATE TABLE "user" (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE "session" (
+CREATE TABLE session (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE "post" (
+CREATE TABLE post (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE "post" (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE api_keys (
+CREATE TABLE api_key (
 	id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 	user_id UUID NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()

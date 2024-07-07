@@ -1,5 +1,7 @@
 use darling::{ast, FromDeriveInput, FromField};
+use proc_macro2::TokenTree;
 use quote::{format_ident, quote, ToTokens};
+use syn::Meta;
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(supports(struct_named), forward_attrs)]
@@ -34,13 +36,12 @@ pub fn from_input(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 	let ident = &receiver.ident;
 	let vis = &input.vis;
 	let generics = &receiver.generics;
-	let create_ident = format_ident!("Create{}Input", ident);
-	let update_ident = format_ident!("Update{}Input", ident);
+	let create_ident = format_ident!("Create{}", ident);
+	let update_ident = format_ident!("Update{}", ident);
 
 	let attrs = &receiver.attrs;
 
 	let fields = receiver.data.take_struct().expect("expected struct");
-	// Fields that should be included in Create and Update models
 	let fields = fields
 		.iter()
 		.filter_map(|field| {
@@ -51,16 +52,17 @@ pub fn from_input(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 			// Skip fields with #[serde(skip_deserializing)] or #[serde(skip)]
 			if attrs.iter().any(|attr| {
-				if !attr.path().is_ident("serde") {
+				let Meta::List(ref list) = attr.meta else {
+					return false;
+				};
+
+				if !list.path.is_ident("serde") {
 					return false;
 				}
 
-				let attr = attr.to_token_stream().to_string();
-
-				// FIXME: consider parsing the attribute instead
-				attr.contains("skip_deserializing")
-					|| attr.contains("skip)")
-					|| attr.contains("skip,")
+				list.tokens.to_token_stream().into_iter().any(|token| {
+					matches!(token, TokenTree::Ident(ref ident) if ident == "skip_deserializing" || ident == "skip")
+				})
 			}) {
 				return None;
 			}

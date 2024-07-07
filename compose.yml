@@ -1,0 +1,25 @@
+services:
+  web:
+    build: .
+    env_file:
+      - .env.prod
+    environment:
+      PORT: 80
+    ports:
+      - "${PORT}:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: [prod]
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "2345:5432"
+    profiles: [dev]
+  telegraf:
+    image: telegraf:alpine
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    profiles: [prod, dev]
+

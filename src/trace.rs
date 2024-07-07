@@ -1,9 +1,6 @@
-use opentelemetry::{global, KeyValue};
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-	metrics::{
-		reader::{DefaultAggregationSelector, DefaultTemporalitySelector},
-		Aggregation, Instrument, MeterProviderBuilder, PeriodicReader, SdkMeterProvider, Stream,
-	},
 	runtime,
 	trace::{BatchConfig, Sampler, Tracer},
 	Resource,
@@ -13,7 +10,6 @@ use opentelemetry_semantic_conventions::{
 	SCHEMA_URL,
 };
 use tracing::{level_filters::LevelFilter, Level};
-use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Constructs a [`Resource`] which describes the service.
@@ -35,54 +31,6 @@ fn resource() -> Resource {
 	)
 }
 
-/// Constructs an [`SdkMeterProvider`] with a custom view for latency metrics.
-fn init_meter_provider() -> SdkMeterProvider {
-	let exporter = opentelemetry_otlp::new_exporter()
-		.tonic()
-		.build_metrics_exporter(
-			Box::new(DefaultAggregationSelector::new()),
-			Box::new(DefaultTemporalitySelector::new()),
-		)
-		.unwrap();
-
-	let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-		.with_interval(std::time::Duration::from_secs(5))
-		.build();
-
-	// Set Custom histogram boundaries for baz metrics
-	let view_latency = |instrument: &Instrument| -> Option<Stream> {
-		if instrument.name == "latency_ms" {
-			Some(
-				Stream::new()
-					.name("latency_ms")
-					.aggregation(Aggregation::Default),
-			)
-		} else {
-			None
-		}
-	};
-
-	let meter_provider = MeterProviderBuilder::default();
-	#[cfg(debug_assertions)]
-	let meter_provider = meter_provider.with_reader(
-		PeriodicReader::builder(
-			opentelemetry_stdout::MetricsExporter::default(),
-			runtime::Tokio,
-		)
-		.build(),
-	);
-
-	let meter_provider = meter_provider
-		.with_resource(resource())
-		.with_reader(reader)
-		.with_view(view_latency)
-		.build();
-
-	global::set_meter_provider(meter_provider.clone());
-
-	meter_provider
-}
-
 /// Constructs a [`Tracer`] with a custom sampling strategy and exporter.
 fn init_tracer() -> Tracer {
 	opentelemetry_otlp::new_pipeline()
@@ -93,7 +41,11 @@ fn init_tracer() -> Tracer {
 				.with_resource(resource()),
 		)
 		.with_batch_config(BatchConfig::default())
-		.with_exporter(opentelemetry_otlp::new_exporter().tonic())
+		.with_exporter(
+			opentelemetry_otlp::new_exporter()
+				.tonic()
+				.with_endpoint(crate::env!("OTEL_EXPORTER_ENDPOINT")),
+		)
 		.install_batch(runtime::Tokio)
 		.unwrap()
 }
@@ -101,28 +53,19 @@ fn init_tracer() -> Tracer {
 /// Initializes the tracing subscriber with OpenTelemetry support, returning
 /// a guard that cleans up the global tracer and meter provider when dropped.
 pub fn init_tracing_subscriber() -> OtelGuard {
-	let meter_provider = init_meter_provider();
-
 	tracing_subscriber::registry()
 		.with(LevelFilter::from_level(Level::INFO))
 		.with(tracing_subscriber::fmt::layer().with_ansi(true))
-		.with(MetricsLayer::new(meter_provider.clone()))
 		.with(tracing_opentelemetry::layer().with_tracer(init_tracer()))
 		.init();
 
-	OtelGuard { meter_provider }
+	OtelGuard
 }
 
-pub struct OtelGuard {
-	meter_provider: SdkMeterProvider,
-}
+pub struct OtelGuard;
 
 impl Drop for OtelGuard {
 	fn drop(&mut self) {
-		if let Err(err) = self.meter_provider.shutdown() {
-			eprintln!("{err:?}");
-		}
-
 		opentelemetry::global::shutdown_tracer_provider();
 	}
 }

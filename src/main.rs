@@ -4,11 +4,11 @@
 #![allow(clippy::wildcard_imports)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::enum_glob_use)]
+#![cfg_attr(test, allow(dead_code, unused_imports))]
 
 mod error;
 mod extract;
 mod openapi;
-#[cfg(not(test))]
 mod ratelimit;
 mod route;
 mod session;
@@ -26,7 +26,6 @@ use axum::{
 };
 
 use tower::{Layer, ServiceBuilder};
-#[cfg(not(test))]
 use tower_governor::GovernorLayer;
 use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::{
@@ -35,7 +34,12 @@ use tower_http::{
 	trace::TraceLayer,
 	ServiceBuilderExt as _,
 };
-use tracing::Span;
+use tracing::{info, Span};
+
+#[cfg(not(debug_assertions))]
+pub use core::env;
+#[cfg(debug_assertions)]
+pub use dotenvy_macro::dotenv as env;
 
 const X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
@@ -57,31 +61,26 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
 	let _guard = trace::init_tracing_subscriber();
-	let _ = dotenvy::dotenv();
 
 	aide::gen::on_error(|error| {
-		tracing::error!("{}", error);
+		tracing::error!("{error}");
 	});
 
-	aide::gen::extract_schemas(true);
+	println!("{}", env!("DATABASE_URL"));
 
 	let state = AppState {
-		database: Database::connect(
-			&std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-		)
-		.await
-		.expect("failed to connect to database"),
+		database: Database::connect(env!("DATABASE_URL"))
+			.await
+			.expect("failed to connect to database"),
 		hasher: Argon2::default(),
 	};
 
-	let port = std::env::var("PORT").map_or_else(
-		|_| 3000,
-		|port| port.parse().expect("PORT must be a number"),
-	);
-
-	let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+	let port = env!("PORT").parse().expect("PORT must be a number");
+	let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
 		.await
 		.expect("failed to bind to port");
+
+	info!("Listening on port {port}");
 
 	let app = app(state);
 	let app = NormalizePathLayer::trim_trailing_slash().layer(app);
@@ -92,10 +91,8 @@ async fn main() {
 
 fn app(state: AppState) -> Router {
 	let mut openapi = OpenApi::default();
-	#[cfg(not(test))]
 	let (default, secure) = (ratelimit::default(), ratelimit::secure());
 
-	#[cfg(not(test))]
 	ratelimit::cleanup_old_limits(&[&default, &secure]);
 
 	let app = ApiRouter::new()
@@ -124,7 +121,6 @@ fn app(state: AppState) -> Router {
 				.vary(Vec::new()),
 		);
 
-	#[cfg(not(test))]
 	let app = app.nest_service("/docs", openapi::routes());
 
 	app.finish_api_with(&mut openapi, openapi::docs)
@@ -149,13 +145,12 @@ fn app(state: AppState) -> Router {
 							)
 						})
 						.on_response(
-							|response: &Response<Body>, latency: Duration, span: &Span| {
+							|response: &Response<Body>, _latency: Duration, span: &Span| {
 								let _guard = span.enter();
 								let status = response.status();
 
-								tracing::info!(
+								info!(
 									status = %status,
-									histogram.latency_ms = %latency.as_millis(),
 									"response"
 								);
 							},
@@ -192,7 +187,7 @@ mod test {
 	}
 
 	#[sqlx::test]
-	fn test_index(pool: Database) {
+	async fn test_index(pool: Database) {
 		let app = app(pool);
 		let response = app.get("/").await;
 

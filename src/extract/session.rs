@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use aide::{openapi, operation, OperationInput};
+use aide::OperationInput;
 use axum::{
 	extract::{FromRef, FromRequestParts},
 	http::{header, request},
@@ -77,7 +77,7 @@ where
 				auth::model::User,
 				r#"
 				SELECT * FROM "user" WHERE id IN (
-					SELECT user_id FROM api_keys WHERE id = $1
+					SELECT user_id FROM api_key WHERE id = $1
 				)
 			"#,
 				api_key
@@ -134,9 +134,7 @@ impl OperationInput for Session {
 	/// Operation input for the session extractor.
 	///
 	/// This adds a session cookie requirement to the `OpenAPI` operation.
-	fn operation_input(ctx: &mut aide::gen::GenContext, operation: &mut aide::openapi::Operation) {
-		let s = ctx.schema.subschema_for::<Uuid>();
-
+	fn operation_input(_ctx: &mut aide::gen::GenContext, operation: &mut aide::openapi::Operation) {
 		operation.security.extend([
 			[(SECURITY_SCHEME_SESSION.to_string(), Vec::new())]
 				.into_iter()

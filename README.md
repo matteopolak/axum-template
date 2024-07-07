@@ -24,6 +24,28 @@ An easy-to-use, easy-to-expand template for [`axum`](https://github.com/tokio-rs
 - [`governor`](https://github.com/boinkor-net/governor) - Rate limiting
 - [`tower_http`](https://github.com/tower-rs/tower-http) - Various middleware
 
+## Set up development environment
+
+```bash
+# Install Rust
+# https://rustup.rs
+
+# Install Docker
+# https://docs.docker.com/engine/install
+
+# Install SQLx CLI
+cargo install sqlx-cli --no-default-features --features postgres
+
+# Start PostgreSQL and Telegraf (or another OpenTelemetry collector)
+docker-compose --profile dev up -d
+
+# Create the database
+sqlx database create
+
+# Run migrations
+sqlx migrate run
+```
+
 ## Macros
 
 This library includes a few macros to make your life easier. Here's the usage and output of each:
@@ -65,14 +87,14 @@ struct Post {
 // Creates two additional structs:
 
 #[derive(Serialize, Deserialize, JsonSchema, Validate)]
-struct CreatePostInput {
+struct CreatePost {
   #[validate(length(min = 1, max = 100))]
   title: String,
   content: String,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Validate)]
-struct UpdatePostInput {
+struct UpdatePost {
   #[validate(length(min = 1, max = 100))]
   title: Option<String>,
   content: Option<String>,

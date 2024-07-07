@@ -9,7 +9,7 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
 	route::from_input(args, input)
 }
 
-/// Creates two new structs: `CreateXInput` and `UpdateXInput` for the model.
+/// Creates two new structs: `CreateX` and `UpdateX` for the model.
 /// For both models, fields with #[serde(skip_deserializing)] are skipped, and all
 /// other fields are included verbatim (including attributes). Attributes on the struct
 /// itself are also copied over to the generated structs.
@@ -27,12 +27,12 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// // Generates:
 ///
-/// struct CreateUserInput {
+/// struct CreateUser {
 ///   name: String,
 ///   email: String,
 /// }
 ///
-/// struct UpdateUserInput {
+/// struct UpdateUser {
 ///   name: Option<String>,
 ///   email: Option<String>,
 /// }

@@ -155,7 +155,7 @@ pub async fn get_me(session: Session) -> Json<model::User> {
 pub async fn update_me(
 	State(state): State<AppState>,
 	session: Session,
-	Json(auth): Json<model::UpdateUserInput>,
+	Json(auth): Json<model::UpdateUser>,
 ) -> Result<Json<model::User>, RouteError> {
 	let user = sqlx::query_as!(
 		model::User,

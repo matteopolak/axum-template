@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-const SCALAR_MIN_JS: &str = "https://cdn.jsdelivr.net/npm/@scalar/api-reference";
+use std::{fs::read_to_string, path::PathBuf};
 
 fn default_theme() -> String {
 	"default".into()
@@ -34,21 +32,15 @@ struct Scalar {
 	title: String,
 }
 
-// Example custom build script.
 fn main() {
 	println!("cargo:rerun-if-changed=Cargo.toml");
+	println!("cargo:rerun-if-changed=assets/scalar.min.js");
 
-	// read from Cargo.toml
-	let config = std::fs::read_to_string("Cargo.toml").unwrap();
+	let config = read_to_string("Cargo.toml").unwrap();
+	let js = read_to_string("assets/scalar.min.js").unwrap();
+
 	let config = toml::from_str::<Config>(&config).unwrap();
-
 	let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-
-	let js = ureq::get(SCALAR_MIN_JS)
-		.call()
-		.unwrap()
-		.into_string()
-		.unwrap();
 
 	let html = format!(
 		r#"<!DOCTYPE html>
@@ -69,15 +61,15 @@ fn main() {
 				<script
 					id="api-reference"></script>
 				<script>
-					var configuration = {{
-						theme: '{theme}',
+					const configuration = {{
+						theme: {theme:?},
 						spec: {{
-							url: '{spec_url}'
+							url: {spec_url:?}
 						}}
-					}}
+					}};
 
-					var apiReference = document.getElementById('api-reference')
-					apiReference.dataset.configuration = JSON.stringify(configuration)
+					document.getElementById('api-reference')
+						.dataset.configuration = JSON.stringify(configuration);
 				</script>
 				<script>
 					{js}

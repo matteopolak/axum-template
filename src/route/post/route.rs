@@ -15,7 +15,7 @@ use super::{model, Error, RouteError};
 pub async fn get_user_posts(
 	State(database): State<Database>,
 	session: Session,
-	Query(paginate): Query<model::PaginateInput>,
+	Query(paginate): Query<model::Paginate>,
 ) -> Result<Json<Vec<model::Post>>, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
@@ -40,7 +40,7 @@ pub async fn get_user_posts(
 #[route(tag = tag::POST)]
 pub async fn get_posts(
 	State(database): State<Database>,
-	Query(paginate): Query<model::PaginateInput>,
+	Query(paginate): Query<model::Paginate>,
 ) -> Result<Json<Vec<model::Post>>, RouteError> {
 	let posts = sqlx::query_as!(
 		model::Post,
@@ -85,7 +85,7 @@ pub async fn get_post(
 pub async fn create_post(
 	State(database): State<Database>,
 	session: Session,
-	Json(input): Json<model::CreatePostInput>,
+	Json(input): Json<model::CreatePost>,
 ) -> Result<Json<model::Post>, RouteError> {
 	let post = sqlx::query_as!(
 		model::Post,
@@ -111,7 +111,7 @@ pub async fn update_post(
 	State(database): State<Database>,
 	session: Session,
 	Path(path): Path<model::IdInput>,
-	Json(input): Json<model::UpdatePostInput>,
+	Json(input): Json<model::UpdatePost>,
 ) -> Result<Json<model::Post>, RouteError> {
 	let post = sqlx::query_as!(
 		model::Post,

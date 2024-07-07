@@ -15,12 +15,12 @@ use super::{model, Error, RouteError};
 pub async fn list_keys(
 	State(state): State<AppState>,
 	session: Session,
-	Query(paginate): Query<model::PaginateInput>,
+	Query(paginate): Query<model::Paginate>,
 ) -> Result<Json<Vec<model::Key>>, RouteError> {
 	let keys = sqlx::query_as!(
 		model::Key,
 		r#"
-			SELECT * FROM api_keys WHERE user_id = $1
+			SELECT * FROM api_key WHERE user_id = $1
 			ORDER BY created_at DESC
 			LIMIT $2 OFFSET $3
 		"#,
@@ -44,7 +44,7 @@ pub async fn create_key(
 	let key = sqlx::query_as!(
 		model::Key,
 		r#"
-			INSERT INTO api_keys (id, user_id) VALUES (DEFAULT, $1)
+			INSERT INTO api_key (id, user_id) VALUES (DEFAULT, $1)
 			RETURNING id, user_id, created_at
 		"#,
 		session.user.id
@@ -66,7 +66,7 @@ pub async fn get_key(
 	let key = sqlx::query_as!(
 		model::Key,
 		r#"
-			SELECT * FROM api_keys WHERE id = $1 AND user_id = $2
+			SELECT * FROM api_key WHERE id = $1 AND user_id = $2
 		"#,
 		path.id,
 		session.user.id,
@@ -87,7 +87,7 @@ pub async fn delete_key(
 ) -> Result<(), RouteError> {
 	let status = sqlx::query!(
 		r#"
-			DELETE FROM api_keys WHERE id = $1 AND user_id = $2
+			DELETE FROM api_key WHERE id = $1 AND user_id = $2
 		"#,
 		path.id,
 		session.user.id
